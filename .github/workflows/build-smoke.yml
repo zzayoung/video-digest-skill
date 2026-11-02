@@ -1,0 +1,50 @@
+name: build-smoke
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 语法检查（全部脚本）
+        run: python -m compileall -q scripts run.py
+
+      - name: 生成器自检（不需要视频/模型）
+        run: |
+          mkdir -p /tmp/out
+          python scripts/make_page.py examples/outline.example.json -o /tmp/out
+          ls -l /tmp/out
+          test -f /tmp/out/merge-selftest.html
+          test -f /tmp/out/merge-selftest.svg
+          test -f /tmp/out/merge-selftest_table.md
+
+      - name: 产物结构断言
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("/tmp/out/merge-selftest.html").read_text(encoding="utf-8")
+          checks = {
+              "内联样式": "--accent:#14556e" in html,
+              "亮暗主题变量": 'data-theme' in html or '[data-theme="dark"]' in html,
+              "进度条挂点": 'id="progress"' in html,
+              "主题按钮": 'id="themeBtn"' in html,
+              "灯箱挂点": 'id="lightbox"' in html,
+              "回到顶部": 'id="toTop"' in html,
+              "架构图引用": ".svg" in html,
+          }
+          for k, v in checks.items():
+              print(("OK   " if v else "FAIL ") + k)
+              assert v, k
+          PY
+
+      - name: CLI 帮助可用
+        run: python scripts/video_digest.py build --schema | head -5
