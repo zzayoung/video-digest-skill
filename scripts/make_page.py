@@ -1160,7 +1160,7 @@ def render_replicate_globals(rep, has_tx):
                    '<div class="ck-bar"><span class="ck-count">0 / 0</span>'
                    '<span class="ck-track"><i></i></span>'
                    '<button class="ck-reset" type="button">重置</button></div>'
-                   "<ul class='ck'>" + "".join(items) + "</ul></div>")
+                   '<ul class="ck">' + "".join(items) + "</ul></div>")
 
     # 9) 换角度变体
     variants = rep.get("variants") or []
