@@ -1,262 +1,156 @@
-# video-digest · 把视频拆成两条线：学会它讲了什么，也学会它怎么做
+<div align="center">
 
-**一个 AI Agent 技能（Skill）：给它一个视频链接或本地视频文件，产出一整套可直接交付的网页专题——主页面 + 可编辑 SVG 架构图 + 表格版 Markdown + 带时间码全文稿。**
+# 片悟 · Pianwu
 
-同一份产出里有两个读法，一个页面内切换：
+### 学懂内容，拆出拍法。
 
-- **知识学习线** —— 这条视频说了什么，我怎么理解、记住、用上
-- **制作复刻线** —— 它怎么拍的，我照着怎么做出同款（含镜头清单、可念的口播稿、可勾选的执行清单）
-- **对照看** —— 同一节左右并排，两个角度挨着看
+把视频变成可回看的学习笔记，与能执行的创作方案。
 
-支持 **B 站 / YouTube / 微信视频号 / 抖音 / 小红书 / TikTok / 本地视频文件**，视频没有字幕也能做（本地语音转写）。
+[下载免安装示例](https://github.com/zzayoung/video-digest-skill/raw/refs/heads/main/docs/pianwu-demo.zip) · [开始使用](#开始使用) · [支持范围](#支持范围) · [English](README.en.md)
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-14556e.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/Python-3.9%20–%203.13-3776AB.svg)](requirements.txt)
-[![Platforms](https://img.shields.io/badge/平台-B站%20%7C%20YouTube%20%7C%20视频号%20%7C%20抖音%20%7C%20小红书%20%7C%20TikTok%20%7C%20本地-1d7a8c.svg)](#支持的平台)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-1d6b45.svg)](CONTRIBUTING.md)
+[![MIT License](https://img.shields.io/badge/License-MIT-14556e.svg)](LICENSE)
+[![Agent Skill](https://img.shields.io/badge/Agent-Skill-1d7a8c.svg)](SKILL.md)
+[![Build smoke](https://github.com/zzayoung/video-digest-skill/actions/workflows/build-smoke.yml/badge.svg)](https://github.com/zzayoung/video-digest-skill/actions/workflows/build-smoke.yml)
 
-<sub>English? → [README.en.md](README.en.md)</sub>
+</div>
 
----
+![片悟：一条视频，学习内容与创作拍法两个视角](docs/cover.svg)
 
-## 它是什么
+**收藏了一堆视频，却用不上里面的方法？** 片悟把「讲了什么」和「怎么做出来」放进同一份专题页：看知识、看拍法，也能逐节对照。
 
-`video-digest` 是一个**视频 → 结构化长文**的 Agent 技能。它不是一个 App，也不是一个网站：它是一组给 AI Agent 读的指令（`SKILL.md`）+ 一套可独立运行的脚本（`run.py` / `scripts/`）。
+它是一套安装在 AI 助手中的 **Agent Skill + 本地 Python 工具**。AI 助手负责理解内容，脚本负责取素材、转写和生成网页。展示品牌是「片悟」，安装与调用名为 `video-digest`。
 
-当你说「把这个视频拆解成专题页 \<链接\>」，它会：识别平台 → 取媒体与文稿（YouTube 优先直取字幕，其余走本地 ASR）→ 抽关键帧 → 写 `outline.json` → 生成四件套。
+## 先看看，你会得到什么
 
-> **一句话定义（便于引用）**：video-digest 把任意视频转成一份带时间码、架构图与关键帧的静态网页专题，并同时给出「学知识」和「怎么复刻」两条可互跳的阅读线，支持 B 站、YouTube、微信视频号、抖音、小红书、TikTok 与本地文件。
-
-![对照视图：左侧知识线，右侧制作线](docs/preview-compare.png)
-
-## 为什么是两条线
-
-看完一个视频，你可能想要两件完全不同的事：
-
-1. **理解它** —— 观点、论据、框架、结论
-2. **复制它** —— 时长、钩子、镜头、节奏、字幕、发布策略
-
-大多数工具只做第一件事，而且给的是不可追溯的摘要。第二件事通常要靠人拉片、逐帧记时间码。
-video-digest 把两件事放在同一份内容里：**同一个章节，左边说它讲了什么，右边说这一段是怎么被做出来的**。
-
-| 路线 | 回答的问题 | 典型产出 |
-|---|---|---|
-| 学习线 `learn` | 讲了什么？为什么成立？ | 核心结论、分章讲解、概念对比表、术语表 |
-| 制作线 `replicate` | 它怎么做的？我怎么做？ | 钩子拆解 + 句式模板、逐段节拍（作用/做法/机位/原口播）、镜头清单、口播稿、剪辑参数、发布策略、执行清单 |
-| 对照 `compare` | 这两个角度怎么对上？ | 同节左右并排 |
-
-制作线上的每一段都和某个章节**按 id 配对**（`beats[].ref`），所以两侧能互相跳转，
-不需要你自己找"这段讲的对应哪个画面"。
-
-## 支持的平台
-
-| 维度 | B 站 | YouTube | 微信视频号 | 抖音 | 小红书 | TikTok | 本地文件 |
-|---|---|---|---|---|---|---|---|
-| 元信息 | 官方 API | yt-dlp | 下载记录 | 分享页 JSON | 笔记页 JSON | yt-dlp | ffprobe |
-| 文稿来源 | 本地 ASR | **优先字幕直取** | 本地 ASR | 本地 ASR | 本地 ASR | 本地 ASR | 本地 ASR |
-| 媒体获取 | 自研 playurl | yt-dlp | `wx-downloader` | play_addr（去水印） | `media.stream` | yt-dlp | 无需下载 |
-| 前置条件 | 无 | 无 | 扫码一次 | 部分需 cookie | **需带 xsec_token** | 部分需 cookie | 文件存在 |
-| 图文作品 | — | — | 暂不支持 | **图集** | **九宫格** | — | **图片目录** |
-
-几条实测结论，能帮你少走弯路：
-
-- **B 站不要用 yt-dlp**：会被 WAF 返回 412，本项目走自实现的 playurl（含 wbi 签名与 qn 降级）。
-- **YouTube 有字幕时不要跑 ASR**：直取字幕能省 483MB 模型和 10 分钟转写；默认取原语音轨 `-orig`，避免机翻字幕污染结论。
-- **抖音的分享页给的是带水印地址**（`playwm`），换 `play` 才是无水印；时长字段是毫秒。
-- **小红书链接必须带 `xsec_token`**，只抠 note_id 重新拼 URL 一定失败。
-- **TikTok 的签名交给 yt-dlp**，失败先升级 yt-dlp，别急着改代码。
-
-## 图文作品也能做
-
-抖音图集、小红书九宫格、本地图片目录**不套视频链路**：没有音轨，不转写、不抽帧，产出是图集页。
-入口不用换：
-
-```bash
-python run.py all "https://xhslink.com/xxxx" -o ./work     # 小红书九宫格
-python run.py all "https://v.douyin.com/xxxx/" -o ./work   # 抖音图集
-python run.py all "C:/我的图集/" -o ./work                  # 本地图片目录
-```
-
-得到 `images/01.jpg…` + `images_index.json`，然后在 outline 里写 `gallery`。
-
-图集页关键设计：**同一张图有两个读法**——`note` 在「知识学习」显示（这张在说什么），
-`design` 在「怎么复刻 / 对照」显示（为什么这么排版）。同一张图，两个角度，不是两段废话。
-
-- 网格列数按张数自动定（≤2 两列、≤6 三列、更多四列），缩略图统一 3:4，封面带角标
-- 灯箱支持 `←` `→` 翻页与 `n / N` 计数
-- 制作线额外给「视觉配方」（画幅/配色/字体/版式/顺序）与「文案结构」（标题/正文/话题）
-
-视频号图文目前没有可靠的第三方下载路径，手动存图后用 `local-images` 走同一套页面。
-
-## 产出物
-
-一次 `build` 产出四件，彼此互相引用、风格统一：
-
-| 文件 | 内容 |
+| 你想做的事 | 片悟给你的结果 |
 |---|---|
-| `<slug>.html` | 主页面：三档视图（学习 / 复刻 / 对照）+ 架构图 + 表格 + 关键帧；图文作品则为图集页 |
-| `<slug>.svg` | 独立可编辑架构图，直接改文字、刷新即生效 |
-| `<slug>_table.md` | 纯表格版，**含两条路线**，方便粘进飞书 / 腾讯文档 / Excel |
-| `transcript_full.html` | 全文稿页，章节锚点 + 全文搜索 + 命中高亮 |
+| 学一条课程或教程 | 核心观点、章节讲解、概念表、时间码，方便回看 |
+| 拆解一个短视频 | 表达结构、镜头清单、口播稿、剪辑建议、执行清单 |
+| 同时研究内容和表达 | 学习 / 制作 / 对照三档切换，同一章节来回跳转 |
+| 整理图文作品 | 同一张图的内容说明与设计拆解，支持图集浏览 |
 
-学习线｜制作线：
+![生成器现有示例的对照视图：左侧理解内容，右侧拆出拍法](docs/preview-compare.png)
 
-![学习线](docs/preview-learn.png)
+*上图为项目已有示例的实际生成器截图，展示章节配对与双视图；示例文案不是传播效果实测。下方下载包使用新编的「60 秒咖啡短片」虚构样例。*
 
-![制作线](docs/preview-replicate.png)
+**先体验，再决定是否安装：**[下载示例 ZIP](https://github.com/zzayoung/video-digest-skill/raw/refs/heads/main/docs/pianwu-demo.zip)，解压整个文件夹，双击 `index.html`。不需要 Python、模型、账号或 API Key。
 
-## 页面里有哪些交互
+可以试这四件事：按 `1 / 2 / 3` 切换视图；点「看这段怎么拍的」；勾选执行清单；点时间码进入全文稿并搜索「侧光」。
 
-不用写一行 CSS/JS，生成器内置：
+> 如果这种「学内容 + 拆拍法」的方式对你有用，欢迎点右上角 **Star**，方便以后找到项目。遇到卡点也欢迎 [提交反馈](https://github.com/zzayoung/video-digest-skill/issues)。
 
-- **三档视图切换**：学习 / 复刻 / 对照，键盘 `1 / 2 / 3`，选择记忆在浏览器本地
-- **逐节互跳**：学习侧「看这段怎么拍的 ›」、制作侧「‹ 看它讲了什么」，落点精确到同一节
-- **亮/暗双主题**、阅读进度条、目录跟随高亮、关键帧灯箱
-- **表格一键复制 TSV**；口播稿每段单独「复制这段」
-- **执行清单可勾选**，带 `n / N` 进度条，勾选状态自动保存
-- 全文稿页：全文搜索 + 命中高亮 + 段数统计，`/` 聚焦、`Esc` 清空
+## 开始使用
 
-## 快速开始
+### 1. 选择你已有的 AI 助手
 
-### 1) 装环境
+**WorkBuddy 用户：**[下载技能包](https://github.com/zzayoung/video-digest-skill/raw/refs/heads/main/docs/video-digest-skill.zip) → 技能 → 添加技能 → 上传技能。[详细步骤与其他宿主 →](INSTALL.md)
+
+你需要一个能读取本地文件、运行 Python 命令的 Agent 环境。请先按 [安装说明](INSTALL.md) 选择 **WorkBuddy、Claude Code 或 Codex** 的安装入口，然后在已安装技能的会话中发送：
+
+```text
+请使用 video-digest 拆解这条视频：<粘贴链接或本地文件路径>
+
+我想同时看懂内容，并学习它的表达与拍摄方法。
+请先读当前技能目录下的 INSTALL.md，检查处理这份素材所需的环境。
+读取文稿和关键画面，写出学习线与制作线，并按章节配对。
+能从素材确认的事实与额外创作建议请分开说明，不要猜造镜头或时间码。
+完成 outline.json 和页面构建，检查图片与全文稿链接，告诉我打开哪个 HTML。
+```
+
+首次处理建议使用你自己的短中文 MP4；这样更容易排除平台登录和下载限制。安装依赖、下载模型需要时间；AI 助手的额度或模型费用由你使用的服务决定。
+
+**还没有 Agent 环境？** 先打开上面的免安装示例。只有命令行也可以取素材与渲染，但自动写学习笔记和制作拆解这一步，需要 AI 助手，或由你手工填写大纲。
+
+### 2. 想自己运行？先用一条命令重建示例
+
+下载或克隆仓库后，在仓库目录运行；只需要 Python，**不用先装 `requirements.txt`**：
 
 ```bash
-git clone https://github.com/zzayoung/video-digest-skill.git \
-  ~/.workbuddy/skills/video-digest      # Windows: %USERPROFILE%\.workbuddy\skills\video-digest
-cd ~/.workbuddy/skills/video-digest
+python scripts/make_page.py examples/starter/outline.json --transcript examples/starter/transcript.json -o ./out/demo
+```
 
-# 建 venv + 装依赖 + 下模型 + 自检（一步到位）
+然后打开 **`out/demo/index.html`**。macOS / Linux 若没有 `python`，用 `python3`；Windows 也可用 `py`。
+
+### 3. 换成自己的视频
+
+在仓库或实际技能目录中执行：
+
+```bash
 python scripts/setup_env.py
+python run.py all "/path/to/your-video.mp4" -o ./work/my-first-video
 ```
 
-已有可用 Python 环境（含 faster-whisper / imageio-ffmpeg）的话，**不用建 venv**：`run.py` 会自动回退。
+`all` 完成后，**请让 AI 助手读取该目录的 `transcript.md`、`info.json` 和 `frames/`，编写 `outline.json`**。它不会自动调用大模型，也不会自动生成这份大纲。
 
-### 2) 跑一遍
+大纲写好后：
 
 ```bash
-python run.py doctor                                    # 各平台能力自检
-python run.py detect "https://v.douyin.com/xxxx/"       # 拿不准平台时用
-
-python run.py all BV1t8oAYuEVf -o ./work --mode replicate
-python run.py all "https://www.youtube.com/watch?v=xxxx" -o ./work
-python run.py all "https://v.douyin.com/xxxx/" -o ./work
-python run.py all "https://xhslink.com/xxxx" -o ./work
-python run.py all "https://vm.tiktok.com/xxxx/" -o ./work
-python run.py all "C:/videos/xxx.mp4" -o ./work
-
-# 需要登录态时（抖音 / 小红书 / TikTok）
-python run.py all "<链接>" -o ./work --cookie "sessionid=...; web_session=..."
+python run.py build ./work/my-first-video/outline.json --transcript ./work/my-first-video/asr_segments.json
 ```
 
-### 3) 出成品
+主页面名称来自大纲里的 `meta.slug`。希望有制作与对照视图时，让助手填写 `replicate`；默认打开制作视图可设置 `meta.mode` 为 `replicate`。
 
-编辑 Agent 给你写好的 `work/outline.json`（想同时出制作线就补一个 `replicate` 块），然后：
+[完整安装与排错 →](INSTALL.md)
 
-```bash
-python run.py build ./work/outline.json --transcript ./work/asr_segments.json
-python run.py build --schema        # 打印 outline.json 全部字段说明
-```
+## 为什么是两个视角
 
-## 工作原理
+**学习线**帮你理解观点、步骤与条件；**制作线**帮你看清表达顺序、镜头安排和可执行动作。它们通过同一章节对应起来，避免把内容摘要与创作建议分散成两份互不关联的文档。
 
-内容与呈现是解耦的——这是本项目最重要的设计决定：
+例如，同一个「侧光拍摄」章节：
 
-![架构图](docs/architecture.svg)
+| 学习线：理解什么 | 制作线：准备怎么做 |
+|---|---|
+| 为什么光的方向会改变物体的明暗层次 | 把杯子放到窗边，固定机位，比较两种摆放方向 |
+| 这一段用什么画面说明观点 | 先给中景，再切杯沿细节，并给出可自行尝试的镜头清单 |
 
-1. **输入**：七种来源任一（BV 号 / YouTube URL / 视频号 / 抖音 / 小红书 / TikTok / 本地文件）
-2. **取数与转写**：按平台选路取媒体 → 抽音频 16k → 本地 ASR；YouTube 有字幕则跳过 ASR
-3. **结构**：Agent 读完整逐字稿，按真实时间码分章、提炼骨架，写成 `outline.json`
-4. **交付**：`build` 一次性渲染四件套；有 `replicate` 块时自动变成双视图
+制作拆解依赖文稿、采样画面和 Agent 的判断。它不是自动识别每一刀剪辑的软件；不可见的机位、设备参数和创作意图应标为推测或建议。
 
-好处很实际：**改版式只改 `scripts/make_page.py` 一处**，历史页面重新 build 就对齐；
-**改一句话只改 outline**；四件套天然一致；两条线不会漂移，因为它们本来就是同一份数据的两种投影。
+## 支持范围
+
+下表描述当前实现路径。**覆盖某平台不等于每条链接都能成功**；登录态、地区、平台结构与网络都会影响取数。
+
+| 来源 | 当前路径 | 开始前知道这些 |
+|---|---|---|
+| 本地视频 | 本地转写与抽帧 | 推荐首次真实试用；文件需可读取 |
+| YouTube | 优先字幕，缺字幕时转写 | 网络或风控可能要求额外登录条件；无字幕英文视频可指定 `--language en` |
+| B 站 | 专用下载链路 + 本地转写 | 部分内容或更高画质需要登录；不保证全部 BV 可取 |
+| 微信视频号 | 第三方下载器 + 本地转写 | 首次需要本人扫码；[视频号说明](references/wxchannels.md) |
+| 抖音 | 分享页解析；视频 / 图集分支 | **待完整线上校准**；部分内容需 Cookie；[详情](references/douyin.md) |
+| 小红书 | 页面解析；视频 / 图集分支 | **待完整线上校准**；保留完整分享链接与 `xsec_token`，可能需要 Cookie；[详情](references/xhs.md) |
+| TikTok | `yt-dlp` + 本地转写 | 受地区、登录与解析器版本影响；[详情](references/tiktok.md) |
+| 本地图片目录 | 直接生成图片清单，交由 Agent 写图集大纲 | 不转写、不生成音频全文稿 |
+
+本仓库 CI 检查离线解析与页面构建，**不等于所有平台的在线可用性监测**。链接取不到时，可以改用你有权使用的本地素材。
+
+## 成品可以怎样使用
+
+| 文件 | 用途 |
+|---|---|
+| `<slug>.html` | 主专题页：学习、制作与对照阅读，清单、复制、亮暗主题 |
+| `<slug>.svg` | 可编辑架构图，用于整理思路或汇报 |
+| `<slug>_table.md` | 表格版笔记与制作方案，便于继续编辑 |
+| `transcript_full.html` | 可搜索、带时间码的全文稿；**提供文稿 JSON 时生成** |
+
+页面的 CSS / JavaScript 已内联。离线阅读或分享时，请把 **HTML、SVG、全文稿和引用的 `frames/` / `images/` 一起复制或打包**，保持相对路径。只发主 HTML 可能丢图；更换构建输出目录不会自动复制素材。
 
 ## 常见问题
 
-**Q：两条线必须都写吗？**
-不必。只写学习线就是原来的单视图页面；加上 `replicate` 块才出现视图切换条。
-短视频（60 秒左右）通常两条线都值得写；长课程视频往往只需要学习线。
+**免费吗？要另配一个摘要 API Key 吗？** 代码按 MIT 开源，脚本没有内置付费摘要 API。内容理解由你自己的 Agent 完成，可能消耗它的订阅额度或模型费用。完整演示免费打开。
 
-**Q：需要 GPU 吗？**
-不需要。CPU + `faster-whisper small` 即可，25 分钟视频约 6–9 分钟转写。有 CUDA 时传 `--device cuda`。
+**需要 GPU 吗？** 不需要。当前转写脚本使用 CPU；速度取决于硬件、视频时长和模型。首次安装会下载依赖与语音模型，预留数 GB 空间更从容。
 
-**Q：视频没有字幕能做吗？**
-能，这是默认路径。B 站的上传字幕极少、视频号/抖音/小红书完全没有字幕轨，都靠本地 ASR。
+**视频会上传吗？** 下载、语音转写、抽帧与页面渲染在运行脚本的电脑上完成；平台请求、依赖和模型下载需要联网。**宿主 Agent 读取文稿与画面时，可能发送给你配置的云端模型。** 本地转写不等于整个流程完全离线。
 
-**Q：抖音 / 小红书 / TikTok 稳定吗？**
-这三家没有公开 API，播放地址藏在页面 JSON 或需要签名，风控也严。本项目的做法是：
-抖音解析分享页的 `_ROUTER_DATA`、小红书解析 `__INITIAL_STATE__`、TikTok 交给 yt-dlp。
-**匿名请求常被降级**（只有 720p 或只有封面），所以要留 `--cookie` 这个口子。
-它们的解析规则会用离线夹具锁住（`tests/test_parsers.py`），平台改结构时会先在这里断掉。
+**只想学知识，不想拆拍法？** 可以。只生成学习大纲即可；加入 `replicate` 才会出现制作与对照视图。
 
-**Q：图文作品支持吗？**
-支持。抖音图集、小红书九宫格、本地图片目录都走图集分支（不转写、不抽帧），产出图集页。
-视频号的图文暂无可靠下载路径，可手动存图后用 `all <目录>` 走同一套。
+**普通聊天窗口能直接用吗？** 需要宿主支持加载技能、访问素材并执行脚本。仅把链接粘贴到没有这些能力的聊天窗口，不会自动跑完整流程。
 
-**Q：会占用多少磁盘？**
-完整环境约 1.2 GB（venv 约 500 MB + ASR 模型 483 MB）。只做有字幕的 YouTube 时，`--skip-model` 可降到约 150 MB。
+## 文档与参与
 
-**Q：生成的网页能直接用吗？**
-能。单文件 HTML（样式与脚本内联），双击即开、无外部依赖、可离线看，也可以直接上传到任意静态托管。
+[安装与排错](INSTALL.md) · [Agent 用法](SKILL.md) · [示例大纲](examples/) · [架构图](docs/architecture.svg) · [更新记录](CHANGELOG.md) · [贡献方式](CONTRIBUTING.md)
 
-**Q：会不会自动上传我的视频或文稿？**
-不会。下载、转写、抽帧全在本机完成，唯一的外部请求是取视频本身与（视频号场景）解析签名。
+欢迎带着具体素材类型、系统与报错来反馈，**不要提交 Cookie 或账号凭据**。近期优先方向：平台真实链路校准、大纲校验、批量结果索引。若能提交匿名化的最小复现或改进说明，对新用户会很有帮助。
 
-## 仓库结构
+请只处理你有权使用的素材，遵守平台规则与创作者权益。制作建议用于学习结构与技法，发布时使用自己的内容。
 
-```
-video-digest-skill/
-├── SKILL.md                  Agent 用法说明（技能入口）
-├── INSTALL.md                给人看的安装与排错
-├── references/
-│   ├── pitfalls.md           通用 + B 站踩坑（网络、签名、截图、样式）
-│   ├── douyin.md             抖音：分享页链路、去水印、cookie
-│   ├── xhs.md                小红书：xsec_token、undefined 容错
-│   ├── tiktok.md             TikTok：yt-dlp 封装与降级
-│   ├── youtube.md            YouTube 链路要点
-│   ├── wxchannels.md         视频号链路与限制
-│   └── design.md             页面设计系统（含双视图规范）与验收清单
-├── scripts/
-│   ├── video_digest.py       统一入口（detect / all / build / doctor）
-│   ├── make_page.py          outline.json → 四件套（含双视图渲染）
-│   ├── setup_env.py          一键装环境
-│   ├── bili_digest.py        转写 / 抽帧 / 文稿
-│   └── lib_bili.py  lib_yt.py  lib_wx.py  lib_douyin.py  lib_xhs.py  lib_tiktok.py
-│       lib_short.py（短链/抠 JSON/下载）  lib_images.py（图集下载与清单）
-├── examples/                 最小大纲（学习版 / 双视图版 / 图集版）
-├── tests/test_parsers.py     平台解析器离线夹具
-├── docs/                     预览图与架构图
-├── run.py                    启动器（自动挑解释器）
-└── requirements.txt
-```
-
-## 路线图
-
-- [ ] 抖音 / 小红书链路在可联网环境做一次完整实测校准
-- [ ] `outline.json` 的 JSON Schema 与校验命令
-- [ ] 批量模式：一次传入多个视频，产出索引页
-- [ ] 图集的「多图对比」视图（同款作品的封面并排比较）
-- [ ] 制作线的「拍摄排期」导出（.ics / 表格）
-- [ ] 英文页面主题（当前设计系统以中文排版为基准）
-
-## 合规与免责
-
-本项目仅用于**个人学习与研究**：把公开视频整理成便于自己检索的笔记。
-
-- 请遵守目标平台的服务条款与所在地区的著作权法；下载的原始视频与逐字稿**不要公开分发或商用**。
-- 视频号链路依赖第三方工具 `wx-downloader` 与个人登录态；抖音 / 小红书 / TikTok 的解析依赖公开页面结构，随时可能失效。
-- **做同款 ≠ 抄内容**：制作线给的是结构与技法，请用你自己的内容去填。
-- 仓库不含任何视频内容、字幕文件或平台凭据。
-
-## 贡献
-
-见 [CONTRIBUTING.md](CONTRIBUTING.md)。踩到新坑、修好一个平台、改进版式，都欢迎提 PR——
-`references/pitfalls.md` 就是这个项目最重要的资产。
-
-## 许可
-
-[MIT](LICENSE)
-
----
-
-<sub>**关键词**：视频拆解、视频转 HTML、视频笔记生成、短视频拆解、视频复刻、拉片、B站视频总结、BV号解析、YouTube 字幕提取、微信视频号下载、抖音去水印、小红书笔记下载、TikTok 下载、本地视频转写、中文 ASR、faster-whisper、AI Agent Skill、Claude Skill、WorkBuddy 技能、outline 驱动生成、双视图、图集、九宫格、图文作品、静态专题页、SVG 架构图</sub>
+[MIT License](LICENSE) · Video learning notes · Creator breakdown · AI Agent Skill · Bilibili · YouTube · 本地视频 · 图文拆解
