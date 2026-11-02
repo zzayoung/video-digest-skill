@@ -18,33 +18,68 @@ jobs:
       - name: 语法检查（全部脚本）
         run: python -m compileall -q scripts run.py
 
-      - name: 生成器自检（不需要视频/模型）
+      - name: 渲染两种路线（不需要视频/模型）
         run: |
-          mkdir -p /tmp/out
-          python scripts/make_page.py examples/outline.example.json -o /tmp/out
-          ls -l /tmp/out
-          test -f /tmp/out/merge-selftest.html
-          test -f /tmp/out/merge-selftest.svg
-          test -f /tmp/out/merge-selftest_table.md
+          mkdir -p /tmp/learn /tmp/repl
+          python scripts/make_page.py examples/outline.example.json -o /tmp/learn
+          python scripts/make_page.py examples/outline.replicate.json -o /tmp/repl
+          ls -l /tmp/learn /tmp/repl
 
-      - name: 产物结构断言
+      - name: 学习版结构断言
         run: |
           python - <<'PY'
           from pathlib import Path
-          html = Path("/tmp/out/merge-selftest.html").read_text(encoding="utf-8")
+          html = Path("/tmp/learn/merge-selftest.html").read_text(encoding="utf-8")
           checks = {
-              "内联样式": "--accent:#14556e" in html,
-              "亮暗主题变量": 'data-theme' in html or '[data-theme="dark"]' in html,
-              "进度条挂点": 'id="progress"' in html,
+              "内联设计变量": "--accent:#14556e" in html,
+              "进度条": 'id="progress"' in html,
               "主题按钮": 'id="themeBtn"' in html,
-              "灯箱挂点": 'id="lightbox"' in html,
+              "灯箱": 'id="lightbox"' in html,
               "回到顶部": 'id="toTop"' in html,
-              "架构图引用": ".svg" in html,
+              "架构图": ".svg" in html,
+              "纯学习版不应出现视图切换条": 'class="viewbar"' not in html,
           }
           for k, v in checks.items():
               print(("OK   " if v else "FAIL ") + k)
               assert v, k
           PY
 
+      - name: 复刻版（双视图）结构断言
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("/tmp/repl/example-replicate.html").read_text(encoding="utf-8")
+          checks = {
+              "视图切换条": 'class="viewbar"' in html,
+              "三档视图按钮": html.count('data-view="') >= 3,
+              "学习 pane": 'class="pane learn"' in html,
+              "制作 pane": 'class="pane repl"' in html,
+              "视角互跳": "data-view-jump" in html,
+              "节拍拆解": 'class="beat"' in html,
+              "镜头清单": 'id="shots"' in html,
+              "口播稿复制": "data-copy" in html,
+              "执行清单勾选": 'class="ck"' in html and "localStorage" in html,
+              "配对章节数 = 5": html.count('class="pair"') == 5,
+          }
+          for k, v in checks.items():
+              print(("OK   " if v else "FAIL ") + k)
+              assert v, k
+          PY
+
+      - name: 表格版含两条路线
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          md = Path("/tmp/repl/example-replicate_table.md").read_text(encoding="utf-8")
+          for needle in ("复刻线：制作方案", "制作快照", "镜头清单", "执行清单", "口播稿"):
+              print(("OK   " if needle in md else "FAIL ") + needle)
+              assert needle in md
+          PY
+
+      - name: 平台解析器离线夹具
+        run: python tests/test_parsers.py
+
       - name: CLI 帮助可用
-        run: python scripts/video_digest.py build --schema | head -5
+        run: |
+          python scripts/video_digest.py build --schema | head -5
+          python scripts/video_digest.py detect --help | head -5

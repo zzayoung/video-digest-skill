@@ -56,7 +56,8 @@
 | `pitfalls` | 红色踩坑块，独立成节 | 正文后 |
 | `takeaways` | 可执行结论卡 | 更后 |
 | `glossary` | 术语表（两列表格） | 最后 |
-| `analysis` | 「方法论反向拆解」节（含两张表） | 架构图之后 |
+| `analysis` | 旧字段，等同 `replicate` | — |
+| `replicate` | 制作线：三档视图 + 逐节配对 + 清单 | 与学习线并存 |
 
 组件写作约定：
 
@@ -112,6 +113,11 @@
 - [ ] 全文稿页搜一个高频词，有过滤 + 高亮 + 段数统计
 - [ ] 375px 窄屏无横向溢出（表格自己横向滚）
 - [ ] `Ctrl+P` 打印预览里没有导航、进度条、浮动按钮
+- [ ] （有 replicate 时）三档视图切换正常，`1/2/3` 快捷键有效，刷新后停在原视图
+- [ ] （有 replicate 时）学习侧「看这段怎么拍的」与制作侧「‹ 看它讲了什么」互跳都能落到对应位置
+- [ ] （有 replicate 时）对照视图两栏并排、窄屏堆叠，无内容重叠
+- [ ] （有 replicate 时）清单勾选进度刷新后仍在（`localStorage`，按 slug 分键）
+- [ ] （有 replicate 时）「复制这段」只复制当前段口播稿
 
 ---
 
@@ -136,3 +142,60 @@ MSEDGE="C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
 // scrollWidth === clientWidth 即无横向溢出
 </script>
 ```
+
+
+---
+
+## 八、双视图：学习线 × 制作线
+
+### 8.1 为什么不是两套页面
+
+同一个视频有两个读法，但**内容只有一个**。如果生成两个独立 HTML，会出现三个问题：
+改一处内容要改两份、两张页面的章节号会漂移、用户没法并排对照。
+所以做法是：**同一节 = 一个 `<section class="pair">`，里面装两个 pane**，靠 `body[data-view]` 控制显隐。
+
+```html
+<section class="pair" id="s1">          <!-- 锚点唯一，三种视图共用 -->
+  <div class="pane learn">…学习内容…</div>   <!-- 蓝色顶条 -->
+  <div class="pane repl">…制作节拍…</div>    <!-- 琥珀顶条 -->
+</section>
+```
+
+三种视图只是 CSS：
+
+| `body[data-view]` | 效果 |
+|---|---|
+| `learn` | 隐藏 `.pane.repl` 与 `.only-repl` |
+| `replicate` | 隐藏 `.pane.learn` 与 `.only-learn` |
+| `compare` | 两者都显示，`.pair` 变两列；≤1080px 堆叠为单列 |
+
+`only-learn` / `only-repl` 用于不属于某一节的全局块（TL;DR、骨架图 vs 镜头表、清单）。
+
+### 8.2 配对键
+
+`replicate.beats[].ref` = `sections[].id`。配对成功后：
+
+- 学习侧标题旁出现 `看这段怎么拍的 ›`（`data-view-jump="replicate"` + `data-anchor="s1"`）
+- 制作侧出现 `‹ 看它讲了什么`（反向）
+- 目录该章节后加 `↔`
+- 没配对上的章节在制作侧显示「这一节在制作线上没有对应动作」
+
+**不要**用序号配对（第 3 个 beat 配第 3 个 section）——短视频的节拍数与章节数经常不等，
+一处插入就会整体错位。
+
+### 8.3 必做交互
+
+| 功能 | 实现要点 |
+|---|---|
+| 三档切换 | `.viewbar .seg button`，`aria-selected` 表示当前；`localStorage['vd-view-<slug>']` 记忆 |
+| 快捷键 | `1/2/3`；输入框内不触发（判断 `tagName`，不要用 `e.target.matches`——`document` 上没有这个方法） |
+| 视角互跳 | 事件委托 `[data-view-jump]`，切视图 + 平滑滚到锚点，偏移 96px 避开吸顶条 |
+| 执行清单 | `input[type=checkbox][data-ck]`，`localStorage['vd-ck-<slug>']` 存 `{c1:true}`；进度条宽度 = 完成比 |
+| 口播稿复制 | `[data-copy="#sc-1"]`，复制目标节点的 `innerText`，复制后按钮文案变「已复制」1.5s |
+
+### 8.4 排版注意
+
+- 对照视图下**隐藏知识骨架图**（`.diagram.only-learn`）：它和左侧目录信息重复，会把对照区推下去一屏。
+- 制作侧标题用 `R01` 而不是 `01`，避免与学习侧编号混淆；标题后跟章节名（12.5px，`--faint`）。
+- 节拍块用 `--warn` 系配色（琥珀），学习侧用 `--accent`（深青），两栏一眼可辨。
+- `compare` 的 `.pair` 用 `align-items:start`，两侧高度不等时不要拉伸。

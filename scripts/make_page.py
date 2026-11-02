@@ -72,7 +72,8 @@ _SCHEMA_DOC = """
 """
 
 PLATFORM_LABEL = {"wxchannels": "微信视频号", "bilibili": "B 站",
-                  "youtube": "YouTube", "local": "本地文件"}
+                  "youtube": "YouTube", "local": "本地文件",
+                  "douyin": "抖音", "xhs": "小红书", "tiktok": "TikTok"}
 
 
 # ---------------------------------------------------------------------------
@@ -657,18 +658,547 @@ def _md(s):
     return x
 
 
+# ---------------------------------------------------------------------------
+# 双视图：知识学习线 × 制作复刻线
+#
+# 设计意图
+# --------
+# 同一个视频有两个读法：
+#   学习线（learn）    —— 它讲了什么，我怎么理解、记住、用上
+#   制作线（replicate）—— 它是怎么拍的，我照着能不能做出来
+# 两条线共用同一套章节 id，逐节配对，所以能互相跳转；三档视图：
+#   学习 / 复刻 / 对照（左右并排，同一节的两个角度挨着看）
+#
+# 关键实现：章节不是两份内容，而是「同一节的两个 pane」装进一个 <section class="pair">，
+# 靠 body[data-view] 控制显隐 —— 因此目录、锚点、进度条在三种视图下都天然一致。
+# ---------------------------------------------------------------------------
+
+REPL_CSS = """
+/* 视图切换条 */
+.viewbar{grid-column:1/-1;position:sticky;top:0;z-index:60;display:flex;gap:14px;
+  align-items:center;flex-wrap:wrap;padding:10px 0;margin-bottom:4px;
+  background:var(--bg);border-bottom:1px solid var(--line)}
+.viewbar .vb-label{font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--faint);font-weight:700}
+.seg{display:inline-flex;gap:2px;padding:3px;background:var(--surface);
+  border:1px solid var(--line);border-radius:999px;box-shadow:var(--shadow)}
+.seg button{border:0;background:transparent;color:var(--muted);cursor:pointer;
+  font:inherit;font-size:13px;padding:6px 15px;border-radius:999px;
+  display:inline-flex;align-items:center;gap:7px;transition:.15s;white-space:nowrap}
+.seg button:hover{color:var(--accent)}
+.seg button[aria-selected="true"]{background:var(--accent);color:var(--on-accent);
+  font-weight:600}
+.seg button .k{font-size:10.5px;opacity:.6;font-variant-numeric:tabular-nums}
+.seg button[aria-selected="true"] .k{opacity:.8}
+.vb-hint{font-size:12px;color:var(--faint);margin-left:auto}
+.vb-hint b{color:var(--ink-2);font-weight:600}
+@media(max-width:760px){.vb-hint{display:none}}
+
+/* 视图显隐 */
+body[data-view="learn"] .pane.repl{display:none}
+body[data-view="replicate"] .pane.learn{display:none}
+body[data-view="learn"] .only-repl{display:none}
+body[data-view="replicate"] .only-learn{display:none}
+body[data-view="replicate"] .pane.empty{display:none}
+body[data-view="learn"] .toc-repl{display:none}
+body[data-view="compare"] .sr-only-view{display:none}
+/* 对照视图优先看「同一节的两个角度」，骨架图先收起（它和目录信息重复） */
+body[data-view="compare"] .diagram.only-learn{display:none}
+
+/* 对照视图：同一节左右并排 */
+body[data-view="compare"] .pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+  gap:22px;align-items:start}
+body[data-view="compare"] .pane.learn{background:var(--surface);border:1px solid var(--line);
+  border-top:3px solid var(--accent);border-radius:0 0 12px 12px;padding:4px 18px 18px}
+body[data-view="compare"] .pane.repl{background:var(--surface-2);border:1px solid var(--line);
+  border-top:3px solid var(--warn);border-radius:0 0 12px 12px;padding:4px 18px 18px}
+body[data-view="compare"] .shead{padding:14px 0 8px}
+body[data-view="compare"] .shead h3{font-size:17px}
+@media(max-width:1080px){
+  body[data-view="compare"] .pair{grid-template-columns:minmax(0,1fr);gap:14px}
+}
+
+/* 视角互跳 chip */
+.xlink{display:inline-flex;align-items:center;gap:5px;font:inherit;font-size:11.5px;
+  border:1px solid var(--line-strong);background:var(--surface);color:var(--muted);
+  border-radius:999px;padding:2px 10px;cursor:pointer;transition:.15s;white-space:nowrap}
+.xlink:hover{color:var(--accent);border-color:var(--accent);transform:translateX(1px)}
+.xlink.repl{border-color:var(--warn);color:var(--warn)}
+.xlink.repl:hover{background:var(--warn-soft)}
+.xlink.learn{border-color:var(--accent);color:var(--accent)}
+
+/* 制作线：节拍块 */
+.beat{border-left:3px solid var(--warn);background:var(--warn-soft);
+  border-radius:0 10px 10px 0;padding:14px 16px;margin:12px 0}
+.beat h4{margin:0 0 8px;font-size:14.5px;display:flex;gap:9px;align-items:baseline;
+  flex-wrap:wrap}
+.beat h4 .no{font-size:11px;color:var(--warn);border:1px solid currentColor;
+  border-radius:5px;padding:0 6px;font-weight:700}
+.beat dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:13.5px}
+.beat dt{color:var(--warn);font-weight:600;white-space:nowrap}
+.beat dd{margin:0;color:var(--ink-2)}
+.beat .line{margin-top:8px;padding:8px 12px;background:var(--surface);border-radius:8px;
+  font-size:13.5px;color:var(--ink-2);border:1px dashed var(--line-strong)}
+.beat .line b{color:var(--faint);font-size:11.5px;font-weight:600;margin-right:6px}
+.pane-note{font-size:12.5px;color:var(--faint);padding:8px 0}
+.pane.repl .shead h3{font-size:17px;display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
+.pane.repl .rsub{font-size:12.5px;font-weight:400;color:var(--faint)}
+
+/* 钩子卡 */
+.hook{background:linear-gradient(180deg,var(--warn-soft),var(--surface));
+  border:1px solid var(--warn);border-radius:12px;padding:16px 18px;margin:0 0 16px}
+.hook .hh{font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--warn);font-weight:700;margin:0 0 8px}
+.hook .q{font-size:15.5px;line-height:1.7;margin:0 0 10px;color:var(--ink)}
+.hook .why{font-size:13.5px;color:var(--ink-2);margin:0 0 6px}
+.hook .tpl{font-family:var(--mono);font-size:12.5px;background:var(--surface);
+  border:1px solid var(--line);border-radius:8px;padding:8px 10px;color:var(--ink-2)}
+
+/* 口播稿卡 */
+.script{border:1px solid var(--line);border-radius:10px;margin:10px 0;
+  background:var(--surface);overflow:hidden}
+.script .sc-head{display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+  padding:8px 12px;background:var(--surface-2);border-bottom:1px solid var(--line);
+  font-size:12.5px;color:var(--muted)}
+.script .sc-head b{color:var(--ink);font-size:13px}
+.script .sc-head .spacer{margin-left:auto}
+.script p{margin:0;padding:12px 14px;font-size:14.5px;line-height:1.85}
+.copy-inline{border:1px solid var(--line);background:var(--surface);color:var(--muted);
+  border-radius:6px;padding:2px 9px;font-size:11.5px;cursor:pointer}
+.copy-inline:hover{color:var(--accent);border-color:var(--accent)}
+.copy-inline.done{color:var(--ok);border-color:var(--ok)}
+
+/* 执行清单 */
+.ck-bar{display:flex;align-items:center;gap:12px;margin:0 0 12px;flex-wrap:wrap}
+.ck-count{font-size:13px;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.ck-track{flex:1;min-width:120px;height:6px;border-radius:999px;background:var(--line);overflow:hidden}
+.ck-track i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent-2));
+  transition:width .2s ease}
+.ck-reset{border:1px solid var(--line);background:var(--surface);color:var(--faint);
+  border-radius:6px;padding:3px 10px;font-size:11.5px;cursor:pointer}
+.ck-reset:hover{color:var(--danger);border-color:var(--danger)}
+ul.ck{list-style:none;margin:0;padding:0}
+ul.ck li{border-bottom:1px dashed var(--line)}
+ul.ck li:last-child{border-bottom:0}
+ul.ck label{display:grid;grid-template-columns:22px 64px 1fr auto;gap:10px;
+  align-items:baseline;padding:9px 0;cursor:pointer;font-size:13.5px}
+ul.ck input{margin:3px 0 0;width:15px;height:15px;accent-color:var(--accent);cursor:pointer}
+ul.ck .ck-stage{font-size:11.5px;color:var(--accent);background:var(--accent-soft);
+  border-radius:5px;padding:1px 7px;text-align:center;white-space:nowrap}
+ul.ck .ck-task{color:var(--ink)}
+ul.ck .ck-out{font-size:11.5px;color:var(--faint);white-space:nowrap}
+ul.ck input:checked ~ .ck-task{text-decoration:line-through;color:var(--faint)}
+@media(max-width:700px){ul.ck label{grid-template-columns:22px 1fr;gap:4px 10px}
+  ul.ck .ck-out{grid-column:2;font-size:11px}
+  ul.ck .ck-stage{grid-row:span 2;align-self:start}}
+
+/* 复刻线的小标题块 */
+.rblock{margin:0 0 24px}
+.rblock > h3{font-size:16.5px;margin:0 0 6px;display:flex;gap:10px;align-items:baseline}
+.rblock > .sub{font-size:12.5px;color:var(--faint);margin:0 0 12px}
+"""
+
+REPL_JS = r"""
+(function(){
+  var body=document.body;
+  var slug=body.getAttribute('data-slug')||'x';
+  var KEY='vd-view-'+slug;
+  var btns=[].slice.call(document.querySelectorAll('.viewbar .seg button'));
+  var hasDual=btns.length>0;
+
+  function apply(v){
+    if(!['learn','replicate','compare'].includes(v)) v='learn';
+    body.setAttribute('data-view',v);
+    btns.forEach(function(b){
+      b.setAttribute('aria-selected',b.dataset.view===v?'true':'false');
+    });
+    try{localStorage.setItem(KEY,v);}catch(e){}
+  }
+  function go(v,anchor){
+    if(!hasDual) return;
+    apply(v);
+    if(anchor){
+      var el=document.getElementById(anchor);
+      if(el){
+        var y=el.getBoundingClientRect().top+window.scrollY-96;
+        window.scrollTo({top:y,behavior:'smooth'});
+      }
+    }
+  }
+
+  if(hasDual){
+    var saved=null;
+    try{saved=localStorage.getItem(KEY);}catch(e){}
+    apply(saved||body.getAttribute('data-view')||'learn');
+    btns.forEach(function(b){
+      b.addEventListener('click',function(){go(b.dataset.view);});
+    });
+    document.addEventListener('keydown',function(e){
+      var t=e.target||{};
+      if(t.tagName&&/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+      if(t.isContentEditable) return;
+      if(e.key==='1') go('learn');
+      if(e.key==='2') go('replicate');
+      if(e.key==='3') go('compare');
+    });
+  }
+
+  /* 视角互跳：学习节 ↔ 制作节 */
+  document.addEventListener('click',function(e){
+    var x=e.target.closest('[data-view-jump]');
+    if(x){
+      e.preventDefault();
+      go(x.getAttribute('data-view-jump'), x.getAttribute('data-anchor'));
+    }
+  });
+
+  /* 一键复制（口播稿 / 任意 [data-copy] 元素） */
+  document.querySelectorAll('[data-copy]').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      var sel=btn.getAttribute('data-copy');
+      var src=document.querySelector(sel);
+      if(!src) return;
+      var txt=(src.innerText||'').trim();
+      var done=function(){
+        var old=btn.textContent;
+        btn.textContent='已复制';btn.classList.add('done');
+        setTimeout(function(){btn.textContent=old;btn.classList.remove('done');},1500);
+      };
+      if(navigator.clipboard&&navigator.clipboard.writeText){
+        navigator.clipboard.writeText(txt).then(done).catch(function(){});
+      }else{
+        var ta=document.createElement('textarea');
+        ta.value=txt;document.body.appendChild(ta);ta.select();
+        try{document.execCommand('copy');done();}catch(err){}
+        document.body.removeChild(ta);
+      }
+    });
+  });
+
+  /* 执行清单：勾选进度本地保存 */
+  var list=document.querySelector('ul.ck');
+  if(list){
+    var CK='vd-ck-'+slug;
+    var boxes=[].slice.call(list.querySelectorAll('input[type=checkbox]'));
+    var count=document.querySelector('.ck-count');
+    var bar=document.querySelector('.ck-track i');
+    var saved2={};
+    try{saved2=JSON.parse(localStorage.getItem(CK)||'{}')||{};}catch(e){}
+
+    function render(){
+      var n=0;
+      boxes.forEach(function(b){
+        var on=!!saved2[b.dataset.ck];
+        b.checked=on; if(on) n++;
+      });
+      if(count) count.textContent=n+' / '+boxes.length;
+      if(bar) bar.style.width=(boxes.length?Math.round(n/boxes.length*100):0)+'%';
+    }
+    boxes.forEach(function(b){
+      b.addEventListener('change',function(){
+        saved2[b.dataset.ck]=b.checked;
+        try{localStorage.setItem(CK,JSON.stringify(saved2));}catch(e){}
+        render();
+      });
+    });
+    var reset=document.querySelector('.ck-reset');
+    if(reset) reset.addEventListener('click',function(){
+      saved2={};
+      try{localStorage.removeItem(CK);}catch(e){}
+      render();
+    });
+    render();
+  }
+})();
+"""
+
+VIEW_LABEL = {
+    "learn": ("知识学习", "这条视频讲了什么、怎么理解"),
+    "replicate": ("怎么复刻", "它怎么做的、我照着做"),
+    "compare": ("对照看", "同一节，两个角度并排"),
+}
+
+
+def _beats_by_ref(rep):
+    out = {}
+    for b in (rep or {}).get("beats") or []:
+        ref = (b.get("ref") or "").strip()
+        out.setdefault(ref or "_", []).append(b)
+    return out
+
+
+def _tc_span(t0, t1):
+    if t0 is None:
+        return ""
+    return f"{fmt_t(t0)}" + (f"–{fmt_t(t1)}" if t1 is not None else "")
+
+
+def render_beat(b, has_tx, sid, idx):
+    """制作线上的一个节拍：它在这一段做了什么、凭什么有效、怎么照抄。"""
+    h = [f'<div class="beat">']
+    head = [f'<span class="no">{idx:02d}</span>',
+            f'<span>{esc(b.get("name") or "节拍")}</span>']
+    span = _tc_span(b.get("t0"), b.get("t1"))
+    if span:
+        head.append(f'<span class="tc">🕒 {span}</span>')
+    h.append("<h4>" + "".join(head) + "</h4>")
+
+    rows = []
+    for key, label in (("role", "作用"), ("how", "怎么做的"),
+                       ("shot", "画面 / 机位"), ("tip", "复刻要点"),
+                       ("dur", "时长")):
+        if b.get(key):
+            rows.append(f"<dt>{label}</dt><dd>{_md(b[key])}</dd>")
+    if rows:
+        h.append("<dl>" + "".join(rows) + "</dl>")
+    if b.get("line"):
+        h.append(f'<div class="line"><b>原口播</b>{_md(b["line"])}</div>')
+    if b.get("xnote"):
+        h.append(f'<div class="line"><b>换个角度</b>{_md(b["xnote"])}</div>')
+    h.append("</div>")
+    return "".join(h)
+
+
+def render_pair(s, i, has_tx, beats, dual):
+    """一个章节 = 学习 pane + 制作 pane，装进同一个 <section>，共用锚点。"""
+    sid = esc(s.get("id") or f"s{i + 1}")
+    out = [f'<section class="pair" id="{sid}">']
+
+    # ---- 学习 pane ----
+    learn = ['<div class="pane learn">']
+    head = [f'<div class="shead"><span class="snum">{i + 1:02d}</span>',
+            f'<h3>{esc(s.get("title"))}</h3>']
+    if s.get("kicker"):
+        head.append(f'<span class="kicker">{esc(s["kicker"])}</span>')
+    span = _tc_span(s.get("t0"), s.get("t1"))
+    if span:
+        head.append(f'<span class="tc">🕒 {span}</span>')
+    if dual and beats:
+        head.append(f'<button class="xlink repl" type="button" '
+                    f'data-view-jump="replicate" data-anchor="{sid}">'
+                    f'看这段怎么拍的 ›</button>')
+    head.append("</div>")
+    learn.append("".join(head))
+
+    if s.get("lead"):
+        learn.append(f'<div class="lead">{esc(s["lead"])}</div>')
+    learn.append('<div class="bd">')
+    for p in s.get("paras") or []:
+        learn.append(f"<p>{_md(p)}</p>")
+    if s.get("bullets"):
+        learn.append("<ul>" + "".join(f"<li>{_md(x)}</li>" for x in s["bullets"]) + "</ul>")
+    q = s.get("quote")
+    if q:
+        src = q.get("src") or ""
+        tcm = _tc(q.get("t"), has_tx) if q.get("t") is not None else ""
+        learn.append(f'<blockquote>{_md(q.get("text"))}'
+                     f'<span class="src">{esc(src)} {tcm}</span></blockquote>')
+    if s.get("cards"):
+        learn.append('<div class="grid">' + "".join(
+            f'<div class="mini"><b>{esc(c.get("h"))}</b>'
+            f'<span>{_md(c.get("p"))}</span></div>'
+            for c in s["cards"]) + "</div>")
+    if s.get("table"):
+        learn.append(_table(s["table"]))
+    learn.append("</div>")
+    figs = s.get("figs") or []
+    if figs:
+        if len(figs) == 1:
+            learn.append(_fig(figs[0], has_tx))
+        else:
+            learn.append('<figs>' + "".join(_fig(f, has_tx) for f in figs) + "</figs>")
+    learn.append("</div>")
+
+    # ---- 制作 pane ----
+    repl = ['<div class="pane repl' + ("" if beats else " empty") + '">']
+    if beats:
+        repl.append(f'<div class="shead"><span class="snum">R{i + 1:02d}</span>'
+                    f'<h3>这一段怎么做的</h3>'
+                    + (f'<button class="xlink learn" type="button" '
+                       f'data-view-jump="learn" data-anchor="{sid}">'
+                       f'‹ 看它讲了什么</button>')
+                    + "</div>")
+        for k, b in enumerate(beats, 1):
+            repl.append(render_beat(b, has_tx, sid, k))
+    else:
+        repl.append('<p class="pane-note">这一节在制作线上没有对应动作'
+                    '（多为背景铺垫或纯观点段）。</p>')
+    repl.append("</div>")
+
+    out.append("".join(learn))
+    if dual:
+        out.append("".join(repl))
+    out.append("</section>")
+    return "".join(out)
+
+
+def render_viewbar(o):
+    """三档视图切换。没有 replicate 数据时不渲染。"""
+    m = o.get("meta") or {}
+    if not o.get("replicate"):
+        return ""
+    rep = o["replicate"]
+    n_beat = len([b for b in (rep.get("beats") or []) if b.get("ref")])
+    out = ['<div class="viewbar"><span class="vb-label">看哪条线</span>',
+           '<div class="seg" role="tablist">']
+    for idx, v in enumerate(("learn", "replicate", "compare"), 1):
+        label = VIEW_LABEL[v][0]
+        out.append(f'<button type="button" role="tab" data-view="{v}" '
+                   f'aria-selected="false" title="{VIEW_LABEL[v][1]}">'
+                   f'{label}<span class="k">{idx}</span></button>')
+    out.append("</div>")
+    hint = (f'<span class="vb-hint">同一份内容，两个角度 · '
+            f'<b>{n_beat}</b> 节已配对 · 按 <b>1/2/3</b> 切换</span>')
+    out.append(hint + "</div>")
+    return "".join(out)
+
+
+def render_replicate_globals(rep, has_tx):
+    """制作线上不挂在某一节名下的部分：快照、钩子、镜头表、口播稿、素材、发布、执行清单。"""
+    if not rep:
+        return ""
+    out = ['<div class="only-repl">']
+
+    # 1) 制作快照
+    snap = rep.get("snapshot")
+    if snap:
+        rows = snap.get("rows") if isinstance(snap, dict) else snap
+        head = (snap.get("head") if isinstance(snap, dict) else None) or ["维度", "这条视频的做法"]
+        out.append('<div class="rblock"><h3>制作快照</h3>'
+                   '<p class="sub">先看它的整体规格，决定你要不要照这个规格做</p>'
+                   + _table({"head": head, "rows": rows}) + "</div>")
+
+    # 2) 开场钩子
+    hook = rep.get("hook")
+    if hook:
+        h = ['<div class="hook"><p class="hh">前 3 秒钩子</p>']
+        if hook.get("text"):
+            h.append(f'<p class="q">“{_md(hook["text"])}”</p>')
+        if hook.get("why"):
+            h.append(f'<p class="why"><b>为什么有效：</b>{_md(hook["why"])}</p>')
+        if hook.get("template"):
+            h.append(f'<div class="tpl">可套用句式：{esc(hook["template"])}</div>')
+        h.append("</div>")
+        out.append('<div class="rblock" id="hook"><h3>开场钩子拆解</h3>'
+                   '<p class="sub">决定完播率的地方，先把它抄下来</p>'
+                   + "".join(h) + "</div>")
+
+    # 3) 镜头脚本
+    shots = rep.get("shots") or []
+    if shots:
+        head = ["#", "画面", "景别 / 机位", "时长", "道具 / 备注"]
+        rows = [[str(k), s.get("desc", ""), s.get("framing", "") or s.get("camera", ""),
+                 s.get("dur", ""), s.get("props", "")] for k, s in enumerate(shots, 1)]
+        out.append('<div class="rblock" id="shots"><h3>镜头清单</h3>'
+                   '<p class="sub">按顺序拍，拍完打勾；右上角可整表复制到表格里排期</p>'
+                   + _table({"head": head, "rows": rows}) + "</div>")
+
+    # 4) 口播稿
+    script = rep.get("script") or []
+    if script:
+        body = []
+        for k, sc in enumerate(script, 1):
+            seg = sc.get("seg") or f"第 {k} 段"
+            meta = " · ".join(x for x in (sc.get("t"), sc.get("pace")) if x)
+            body.append(
+                f'<div class="script"><div class="sc-head"><b>{esc(seg)}</b>'
+                f'<span>{esc(meta)}</span>'
+                f'<span class="spacer"></span>'
+                f'<button class="copy-inline" type="button" '
+                f'data-copy="#sc-{k}">复制这段</button></div>'
+                f'<p id="sc-{k}">{_md(sc.get("text"))}</p></div>')
+        out.append('<div class="rblock" id="script"><h3>可直接念的口播稿</h3>'
+                   '<p class="sub">按照它自己的语速写成，念一遍就能录</p>'
+                   + "".join(body) + "</div>")
+
+    # 5) 素材与器材
+    assets = rep.get("assets")
+    if assets:
+        rows = []
+        if isinstance(assets, dict):
+            for k, v in assets.items():
+                rows.append([k, "、".join(v) if isinstance(v, list) else str(v)])
+        else:
+            rows = assets
+        out.append('<div class="rblock"><h3>器材与素材清单</h3>'
+                   '<p class="sub">开拍前照这张表准备，避免边拍边找</p>'
+                   + _table({"head": ["项", "要准备什么"], "rows": rows}) + "</div>")
+
+    # 6) 剪辑参数
+    edit = rep.get("edit")
+    if edit:
+        rows = edit.get("rows") if isinstance(edit, dict) else edit
+        head = (edit.get("head") if isinstance(edit, dict) else None) or ["环节", "参数 / 做法"]
+        out.append('<div class="rblock"><h3>剪辑与包装</h3>'
+                   '<p class="sub">同样的素材，这几个参数决定像不像</p>'
+                   + _table({"head": head, "rows": rows}) + "</div>")
+
+    # 7) 发布策略
+    pub = rep.get("publish")
+    if pub:
+        rows = pub.get("rows") if isinstance(pub, dict) else pub
+        head = (pub.get("head") if isinstance(pub, dict) else None) or ["项", "做法"]
+        out.append('<div class="rblock"><h3>发布与运营</h3>'
+                   '<p class="sub">标题 / 封面 / 话题 / 时间，抄它的选择</p>'
+                   + _table({"head": head, "rows": rows}) + "</div>")
+
+    # 8) 执行清单（可勾选，进度存本地）
+    ck = rep.get("checklist") or []
+    if ck:
+        items = []
+        for k, it in enumerate(ck, 1):
+            key = f"c{k}"
+            items.append(
+                f'<li><label><input type="checkbox" data-ck="{key}">'
+                f'<span class="ck-stage">{esc(it.get("stage") or "—")}</span>'
+                f'<span class="ck-task">{_md(it.get("task"))}</span>'
+                f'<span class="ck-out">{esc(it.get("out") or "")}'
+                f'{(" · " + str(it["min"]) + "′") if it.get("min") else ""}</span>'
+                f'</label></li>')
+        out.append('<div class="rblock" id="checklist"><h3>执行清单</h3>'
+                   '<p class="sub">从上到下做完就能发一条；勾选进度会自动保存</p>'
+                   '<div class="ck-bar"><span class="ck-count">0 / 0</span>'
+                   '<span class="ck-track"><i></i></span>'
+                   '<button class="ck-reset" type="button">重置</button></div>'
+                   "<ul class='ck'>" + "".join(items) + "</ul></div>")
+
+    # 9) 换角度变体
+    variants = rep.get("variants") or []
+    if variants:
+        out.append('<div class="rblock"><h3>换角度做同款</h3>'
+                   '<p class="sub">结构不变、只换内核，避免和别人撞车</p><ul>'
+                   + "".join(f"<li>{_md(v)}</li>" for v in variants) + "</ul></div>")
+
+    out.append("</div>")
+    return "".join(out)
+
+
 def render_html(o, svg_name, has_tx, tx_name="transcript_full.html"):
     m = o.get("meta") or {}
     secs = o.get("sections") or []
+    rep = o.get("replicate") or {}
+    dual = bool(rep)
+    beats = _beats_by_ref(rep)
+
     mode = (m.get("mode") or "learn").lower()
-    mode_label = {"learn": "梳理理解 · 学习版",
-                  "analysis": "方法论反向拆解 · analysis"}.get(mode, mode)
+    if mode == "analysis":                 # 旧名兼容
+        mode = "replicate"
+    view = mode if (dual and mode in ("learn", "replicate")) else "learn"
+    slug = m.get("slug") or "digest"
+
+    if dual:
+        mode_label = "双视图 · 学习 + 复刻"
+    else:
+        mode_label = {"learn": "梳理理解 · 学习版",
+                      "replicate": "复刻方案版"}.get(mode, mode)
     plat = PLATFORM_LABEL.get(m.get("platform"), m.get("platform") or "")
 
-    out = ["<!DOCTYPE html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\">",
+    style = CSS + (REPL_CSS if dual else "")
+    out = ['<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">',
            '<meta name="viewport" content="width=device-width,initial-scale=1">',
            f"<title>{esc(m.get('title'))} · 视频拆解</title>",
-           f"<style>{CSS}</style></head><body>",
+           f"<style>{style}</style></head>",
+           f'<body data-view="{view}" data-slug="{esc(slug)}">',
            '<div id="progress"></div>',
            '<button class="icon-btn" id="themeBtn" type="button" '
            'aria-label="切换主题"></button>',
@@ -694,6 +1224,9 @@ def render_html(o, svg_name, has_tx, tx_name="transcript_full.html"):
         meta_bits.append(f'<span>时长 <b>{esc(m["duration"])}</b></span>')
     if len(secs):
         meta_bits.append(f'<span>章节 <b>{len(secs)}</b></span>')
+    if dual:
+        paired = sum(1 for s in secs if beats.get(s.get("id") or ""))
+        meta_bits.append(f'<span>已配对 <b>{paired}/{len(secs)}</b></span>')
     if m.get("url"):
         meta_bits.append(f'<span>来源 <a href="{esc(m["url"])}" target="_blank" '
                          'rel="noopener">原链接</a></span>')
@@ -702,16 +1235,23 @@ def render_html(o, svg_name, has_tx, tx_name="transcript_full.html"):
     out.append('<div class="metaline">' + "".join(meta_bits) + "</div>")
     out.append("</header>")
 
-    # 左侧目录
+    out.append(render_viewbar(o))
+
+    # 左侧目录：两套锚点共用（章节 id 相同，所以切换视图不会失锚）
     nav = ['<nav class="toc"><p class="ttl">目录</p>']
     if o.get("tldr"):
         nav.append('<a href="#tldr" data-id="tldr">核心结论</a>')
-    if svg_name:
-        nav.append('<div style="height:6px"></div>')
     for i, s in enumerate(secs):
         sid = esc(s.get("id") or f"s{i+1}")
+        mark = " ↔" if dual and beats.get(s.get("id") or "") else ""
         nav.append(f'<a href="#{sid}" data-id="{sid}">{i+1}. '
-                   f'{esc(_clip(s.get("title"), 18))}</a>')
+                   f'{esc(_clip(s.get("title"), 18))}{mark}</a>')
+    if dual:
+        nav.append('<div class="toc-repl" style="height:6px"></div>')
+        for anchor, label in (("hook", "开场钩子"), ("shots", "镜头清单"),
+                              ("script", "口播稿"), ("checklist", "执行清单")):
+            nav.append(f'<a class="toc-repl" href="#{anchor}" data-id="{anchor}">'
+                       f'{label}</a>')
     if o.get("pitfalls"):
         nav.append('<div style="height:6px"></div>')
         nav.append('<a href="#pitfalls" data-id="pitfalls">踩坑与提醒</a>')
@@ -719,26 +1259,25 @@ def render_html(o, svg_name, has_tx, tx_name="transcript_full.html"):
         nav.append('<a href="#takeaways" data-id="takeaways">可执行结论</a>')
     if o.get("glossary"):
         nav.append('<a href="#glossary" data-id="glossary">术语表</a>')
-    if o.get("analysis"):
-        nav.insert(1, '<a href="#analysis" data-id="analysis">方法论拆解</a>')
     nav.append("</nav>")
     out.append("".join(nav))
 
     out.append("<main>")
 
-    # TL;DR
-    if o.get("tldr"):
-        out.append('<div class="card tldr" id="tldr"><h2>核心结论 / TL;DR</h2>')
+    # TL;DR（学习线）
+    if o.get("tldr") or o.get("thesis"):
+        out.append('<div class="card tldr only-learn" id="tldr">'
+                   '<h2>核心结论 / TL;DR</h2>')
         if o.get("thesis"):
             out.append(f'<p class="thesis">{_md(o["thesis"])}</p>')
-        out.append("<ol>" + "".join(f"<li>{_md(x)}</li>" for x in o["tldr"])
-                   + "</ol></div>")
+        if o.get("tldr"):
+            out.append("<ol>" + "".join(f"<li>{_md(x)}</li>" for x in o["tldr"])
+                       + "</ol>")
+        out.append("</div>")
 
-    # 架构图
+    # 架构图（学习线的知识骨架）
     if svg_name:
-        out.append('<div class="diagram">')
-        # 用 <img> 而不是 <object>：img 会按 viewBox 比例自适应容器宽度，
-        # object 会按 SVG 的固有像素尺寸显示，宽屏下右侧留一大片空白。
+        out.append('<div class="diagram only-learn">')
         out.append(f'<img src="{esc(svg_name)}" alt="内容架构图" '
                    'class="arch" loading="lazy">')
         out.append('<div class="cap"><span>内容骨架图（可编辑 SVG，'
@@ -746,38 +1285,19 @@ def render_html(o, svg_name, has_tx, tx_name="transcript_full.html"):
                    f'<a href="{esc(svg_name)}" target="_blank">单独打开 ↗</a></div>')
         out.append("</div>")
 
-    # 方法论（analysis 模式）
-    an = o.get("analysis")
-    if an:
-        out.append('<section id="analysis"><div class="shead">'
-                   '<span class="snum">A</span><h3>方法论反向拆解</h3>'
-                   '<span class="kicker">analysis</span></div>')
-        out.append('<div class="bd">')
-        for key, label in (("positioning", "内容定位"), ("skeleton", "内容骨架")):
-            if an.get(key):
-                out.append(f"<p><strong>{label}：</strong>{_md(an[key])}</p>")
-        if an.get("methods"):
-            out.append("<ul>" + "".join(f"<li>{_md(x)}</li>" for x in an["methods"])
-                       + "</ul>")
-        if an.get("prep"):
-            rows = [[k, "；".join(v) if isinstance(v, list) else str(v)]
-                    for k, v in an["prep"].items()]
-            out.append(_table({"title": "制作准备清单", "head": ["环节", "要准备什么"],
-                               "rows": rows}))
-        if an.get("template"):
-            rows = [[t.get("part"), t.get("how")] for t in an["template"]]
-            out.append(_table({"title": "可复用模板", "head": ["段落", "做法"],
-                               "rows": rows}))
-        out.append("</div></section>")
-
-    # 正文章节
+    # 逐节：学习 pane + 制作 pane
     for i, s in enumerate(secs):
-        out.append(render_section(s, i, has_tx))
+        sid = s.get("id") or f"s{i+1}"
+        out.append(render_pair(s, i, has_tx, beats.get(sid) or [], dual))
 
-    # 踩坑
+    # 制作线的全局块（快照 / 钩子 / 镜头 / 稿子 / 清单）
+    out.append(render_replicate_globals(rep, has_tx))
+
+    # 学习线的收尾
     if o.get("pitfalls"):
-        out.append('<section id="pitfalls"><div class="shead">'
-                   '<span class="snum">!</span><h3>踩坑与提醒</h3>'
+        out.append('<section class="only-learn" id="pitfalls">'
+                   '<div class="shead"><span class="snum">!</span>'
+                   '<h3>踩坑与提醒</h3>'
                    '<span class="kicker">作者明确提到的失误 / 警告</span></div>')
         for p in o["pitfalls"]:
             if isinstance(p, str):
@@ -787,16 +1307,15 @@ def render_html(o, svg_name, has_tx, tx_name="transcript_full.html"):
             out.append(f'<div class="pit">{t}<p>{_md(p.get("text"))} {tc}</p></div>')
         out.append("</section>")
 
-    # 结论
     if o.get("takeaways"):
-        out.append('<div class="card" id="takeaways"><h2>可执行结论</h2><ul>'
+        out.append('<div class="card only-learn" id="takeaways">'
+                   '<h2>可执行结论</h2><ul>'
                    + "".join(f"<li>{_md(x)}</li>" for x in o["takeaways"])
                    + "</ul></div>")
 
-    # 术语表
     if o.get("glossary"):
         rows = [[g.get("term"), g.get("def")] for g in o["glossary"]]
-        out.append('<div class="card" id="glossary"><h2>术语表</h2>'
+        out.append('<div class="card only-learn" id="glossary"><h2>术语表</h2>'
                    + _table({"head": ["术语", "释义"], "rows": rows}) + "</div>")
 
     out.append("</main>")
@@ -812,7 +1331,9 @@ def render_html(o, svg_name, has_tx, tx_name="transcript_full.html"):
                '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" '
                'stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">'
                '<path d="M12 19V5M5 12l7-7 7 7"/></svg></button>')
-    out.append(f"</div><script>{JS_TOC}</script></body></html>")
+    out.append(f"</div><script>{JS_TOC}</script>"
+               + (f"<script>{REPL_JS}</script>" if dual else "")
+               + "</body></html>")
     return "".join(out)
 
 
@@ -1043,6 +1564,21 @@ def _md_table(head, rows, title=None):
     return "\n".join(out)
 
 
+def _mode_label(m):
+    """mode → 给人看的方向名。有 replicate 数据就是双视图。"""
+    mode = (m.get("mode") or "learn").lower()
+    if mode == "analysis":
+        mode = "replicate"
+    return {"learn": "learn（梳理理解 · 学习版）",
+            "replicate": "replicate（复刻方案 · 制作版）"}.get(mode, mode)
+
+
+def _span(t0, t1):
+    if t0 is None:
+        return ""
+    return fmt_t(t0) + (f"–{fmt_t(t1)}" if t1 is not None else "")
+
+
 def render_table_md(o):
     m = o.get("meta") or {}
     secs = o.get("sections") or []
@@ -1124,6 +1660,61 @@ def render_table_md(o):
             L += [_md_table(["段落", "做法"],
                             [[t.get("part"), t.get("how")] for t in an["template"]],
                             "可复用模板"), ""]
+
+    rep = o.get("replicate")
+    if rep:
+        L += ["## 复刻线：制作方案", ""]
+        snap = rep.get("snapshot")
+        if snap:
+            rows = snap.get("rows") if isinstance(snap, dict) else snap
+            head = (snap.get("head") if isinstance(snap, dict) else None) or ["维度", "做法"]
+            L += [_md_table(head, rows, "制作快照"), ""]
+        hook = rep.get("hook")
+        if hook:
+            rows = [[k, hook.get(k)] for k in ("text", "why", "template") if hook.get(k)]
+            L += [_md_table(["项", "内容"], rows, "前 3 秒钩子"), ""]
+        beats = rep.get("beats") or []
+        if beats:
+            L += [_md_table(["节拍", "对应章节", "时间", "作用", "怎么做的", "原口播", "复刻要点"],
+                            [[b.get("name", ""), b.get("ref", ""),
+                              _span(b.get("t0"), b.get("t1")), b.get("role", ""),
+                              b.get("how", ""), b.get("line", ""), b.get("tip", "")]
+                             for b in beats], "逐段拆解"), ""]
+        shots = rep.get("shots") or []
+        if shots:
+            L += [_md_table(["#", "画面", "景别 / 机位", "时长", "道具 / 备注"],
+                            [[str(i), x.get("desc", ""),
+                              x.get("framing", "") or x.get("camera", ""),
+                              x.get("dur", ""), x.get("props", "")]
+                             for i, x in enumerate(shots, 1)], "镜头清单"), ""]
+        script = rep.get("script") or []
+        if script:
+            L += [_md_table(["段", "时间", "台词"],
+                            [[x.get("seg", ""), x.get("t", ""), x.get("text", "")]
+                             for x in script], "口播稿"), ""]
+        assets = rep.get("assets")
+        if assets:
+            rows = ([[k, "、".join(v) if isinstance(v, list) else v] for k, v in assets.items()]
+                    if isinstance(assets, dict) else assets)
+            L += [_md_table(["项", "要准备什么"], rows, "器材与素材"), ""]
+        edit = rep.get("edit")
+        if edit:
+            rows = edit.get("rows") if isinstance(edit, dict) else edit
+            head = (edit.get("head") if isinstance(edit, dict) else None) or ["环节", "做法"]
+            L += [_md_table(head, rows, "剪辑与包装"), ""]
+        pub = rep.get("publish")
+        if pub:
+            rows = pub.get("rows") if isinstance(pub, dict) else pub
+            head = (pub.get("head") if isinstance(pub, dict) else None) or ["项", "做法"]
+            L += [_md_table(head, rows, "发布与运营"), ""]
+        ck = rep.get("checklist") or []
+        if ck:
+            L += [_md_table(["阶段", "任务", "产出", "分钟"],
+                            [[x.get("stage", ""), x.get("task", ""),
+                              x.get("out", ""), str(x.get("min", ""))]
+                             for x in ck], "执行清单"), ""]
+        if rep.get("variants"):
+            L += ["### 换角度做同款", ""] + [f"- {v}" for v in rep["variants"]] + [""]
 
     if o.get("pitfalls"):
         L += ["## 踩坑与提醒", ""]

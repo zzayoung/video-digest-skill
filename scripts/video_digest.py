@@ -1,14 +1,20 @@
 #!/usr/bin/env python
-"""视频拆解统一入口：B 站 + YouTube + 微信视频号 + 本地文件。
+"""视频拆解统一入口：B 站 + YouTube + 微信视频号 + 抖音 + 小红书 + TikTok + 本地文件。
 
-设计取舍（为什么四平台长得不一样）
+设计取舍（为什么各平台长得不一样）
 ----------------------------------
 | | 元信息 | 文稿来源 | 媒体获取 |
 |---|---|---|---|
 | B 站 | 官方 API | 必走本地 ASR（无开放字幕接口） | 自研 playurl（yt-dlp 被 WAF 412） |
 | YouTube | yt-dlp | **优先字幕直取**，秒级；无字幕才 ASR | yt-dlp |
 | 视频号 | 下载产物里的 .wx-*.json | 必走本地 ASR（无字幕轨） | 借 wx-downloader（元宝登录态） |
+| 抖音 | 分享页 `_ROUTER_DATA` | 必走本地 ASR | share 页里的 play_addr（playwm→play 去水印） |
+| 小红书 | 笔记页 `__INITIAL_STATE__` | 必走本地 ASR（字幕是硬贴纸） | video.media.stream[0].masterUrl |
+| TikTok | yt-dlp（签名由社区维护） | 默认 ASR，有字幕轨时可扩展 | yt-dlp |
 | 本地文件 | ffprobe | 必走本地 ASR | 无需下载 |
+
+短视频三平台（抖音/小红书/TikTok）的共同点：没有公开 API、播放地址藏在页面 JSON 或
+需要签名、匿名请求会被降级。它们统一支持 `--cookie` 传入浏览器登录态。
 
 子命令：
   detect     <链接|BV号|文件>          识别平台
@@ -35,6 +41,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import lib_yt      # noqa: E402
 import lib_wx      # noqa: E402
+import lib_douyin  # noqa: E402
+import lib_xhs     # noqa: E402
+import lib_tiktok  # noqa: E402
 import bili_digest  # noqa: E402  (B 站原链路，复用其 cmd_* )
 
 VIDEO_EXT = (".mp4", ".m4v", ".mov", ".mkv", ".webm")
@@ -46,10 +55,12 @@ AUDIO_EXT = (".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg")
 def detect(target):
     """识别目标属于哪个平台。
 
-    顺序很重要：**本地文件 > 视频号 > B 站 > YouTube**。
+    顺序很重要：**本地文件 > 视频号 > 短视频三站 > B 站 > YouTube**。
     先把「能确定」的判掉，最后才用弱特征（11 位 ID）兜 YouTube——
     否则一个 11 位的视频号分享 ID 会被误判成 YouTube 视频 ID
     （视频号 share id 与 YouTube video id 长度、字符集完全重合，无法靠形态区分）。
+    短视频优先于 B 站：它们的短链（v.douyin.com / xhslink.com / vm.tiktok.com）
+    与 B 站短链 b23.tv 一样都是「域名 + 随机串」，必须按域名严格区分。
     """
     t = (target or "").strip()
     if not t:
@@ -66,15 +77,23 @@ def detect(target):
     if lib_wx.is_channel(t):
         return "wxchannels"
 
-    # 3) B 站
+    # 3) 短视频三站（按域名严格判定）
+    if lib_douyin.is_douyin(t):
+        return "douyin"
+    if lib_xhs.is_xhs(t):
+        return "xhs"
+    if lib_tiktok.is_tiktok(t):
+        return "tiktok"
+
+    # 4) B 站
     if re.match(r"^BV[0-9A-Za-z]{10}$", t) or "bilibili.com" in t or "b23.tv" in t:
         return "bilibili"
 
-    # 4) YouTube 显式链接
+    # 5) YouTube 显式链接
     if "youtube.com" in t or "youtu.be" in t:
         return "youtube"
 
-    # 5) 裸 11 位 ID：先假设 YouTube，但必须验证存在，否则提示歧义
+    # 6) 裸 11 位 ID：先假设 YouTube，但必须验证存在，否则提示歧义
     if re.match(r"^[0-9A-Za-z_-]{11}$", t):
         if _yt_exists(t):
             return "youtube"
@@ -88,6 +107,9 @@ def detect(target):
                      "  B 站：BV号 / bilibili.com 链接\n"
                      "  YouTube：youtube.com / youtu.be 链接 / 11 位 ID\n"
                      "  视频号：weixin.qq.com/sph/... 分享链接\n"
+                     "  抖音：v.douyin.com 短链 / douyin.com/video/<id>\n"
+                     "  小红书：xhslink.com 短链 / xiaohongshu.com/explore/<id>\n"
+                     "  TikTok：vm.tiktok.com 短链 / tiktok.com/@user/video/<id>\n"
                      "  本地：音视频文件路径")
 
 
@@ -153,12 +175,28 @@ def _done(t0, extra=""):
 def cmd_detect(a):
     p = detect(a.target)
     print(p)
+    cookie = getattr(a, "cookie", None)
     if p == "youtube":
         print("video_id:", lib_yt.parse_id(a.target))
     elif p == "wxchannels":
         url, sid = lib_wx.parse_share(a.target)
         print("share_id:", sid)
         print("normalized:", url)
+    elif p == "douyin":
+        t = lib_douyin.parse_target(a.target, cookie=cookie)
+        print("aweme_id:", t["id"])
+        print("normalized:", t["url"])
+    elif p == "xhs":
+        t = lib_xhs.parse_target(a.target, cookie=cookie)
+        print("note_id:", t["id"])
+        print("normalized:", t["url"][:120])
+        if "xsec_token=" not in t["url"]:
+            print("  ⚠ 链接里没有 xsec_token —— 小红书大概率拒绝访问，"
+                  "请用 App「分享 → 复制链接」的原始链接")
+    elif p == "tiktok":
+        t = lib_tiktok.parse_target(a.target, cookie=cookie)
+        print("video_id:", t["id"])
+        print("normalized:", t["url"])
     elif p == "local":
         pr = lib_wx.probe(a.target)
         print("duration:", _fmt_dur(pr.get("duration")),
@@ -172,6 +210,7 @@ def cmd_info(a):
     wd = Path(a.out)
     wd.mkdir(parents=True, exist_ok=True)
     plat = detect(a.target)
+    cookie = getattr(a, "cookie", None)
 
     if plat == "bilibili":
         return bili_digest.cmd_info(argparse.Namespace(
@@ -182,6 +221,9 @@ def cmd_info(a):
 
     if plat == "wxchannels":
         return _info_wx(a.target, wd)
+
+    if plat in ("douyin", "xhs", "tiktok"):
+        return _info_short(plat, a.target, wd, cookie)
 
     info = lib_yt.video_info(a.target, workdir=str(wd))
     dur = info["duration"] or 0
@@ -256,6 +298,34 @@ def _info_wx(target, wd):
     return info
 
 
+def _info_short(plat, target, wd, cookie=None):
+    """抖音 / 小红书 / TikTok 的元信息输出。三者字段同构，只换 lib 与提示语。"""
+    lib = {"douyin": lib_douyin, "xhs": lib_xhs, "tiktok": lib_tiktok}[plat]
+    vid = _find_video(wd)
+    info = lib.video_info(target, str(wd), video_path=vid, cookie=cookie)
+
+    print(f"标题  : {info['title'] or '(未取到)'}")
+    print(f"作者  : {info['owner'] or '(未知)'}")
+    if info.get("duration"):
+        print(f"时长  : {_fmt_dur(info['duration'])}  ({info['duration']}s)")
+    if info.get("width"):
+        print(f"分辨率: {info['width']}x{info['height']}")
+    st = info.get("stat") or {}
+    if any(st.values()):
+        bits = [f"{k} {v}" for k, v in
+                (("播放", st.get("view")), ("点赞", st.get("like")),
+                 ("评论", st.get("comment")), ("收藏", st.get("collect")),
+                 ("分享", st.get("share"))) if v]
+        print("数据  : " + "  ".join(bits))
+    if info.get("tags"):
+        print("话题  : " + " ".join("#" + t for t in info["tags"][:8]))
+    print(f"简介  : {(info.get('desc') or '')[:160] or '(空)'}")
+    print("字幕  : 无（短视频平台的字幕是画面硬字/贴纸 → 必走 ASR）")
+    if info.get("error"):
+        print(f"⚠  {info['error']}")
+    return info
+
+
 def cmd_subs(a):
     """YouTube 字幕直取：把官方/自动字幕转成与 ASR 同构的 asr_segments.json。"""
     plat = detect(a.target)
@@ -312,6 +382,29 @@ def _to_wav(src, wd):
     return str(out)
 
 
+def _download_short(plat, a, wd):
+    """抖音 / 小红书 / TikTok 下载：统一落成 video.mp4，并顺带转 16k wav。
+
+    这三个平台都没有可用的字幕轨，下载后必然要转写，所以 wav 一起做掉，
+    免得 all 流程里再判断一次。
+    """
+    lib = {"douyin": lib_douyin, "xhs": lib_xhs, "tiktok": lib_tiktok}[plat]
+    cookie = getattr(a, "cookie", None)
+    res = lib.download(a.target, str(wd), cookie=cookie)
+    print(f"[{plat}] {'已存在，跳过' if res['skipped'] else '下载完成'}")
+    print(f"     标题: {res.get('title') or '(未取到)'}")
+    print(f"     作者: {res.get('author') or '(未知)'}")
+    print(f"     文件: {res['video']}")
+    print(f"     大小: {res['bytes'] / 1e6:.1f} MB")
+
+    wav = wd / "audio16k.wav"
+    if wav.exists() and wav.stat().st_mtime >= Path(res["video"]).stat().st_mtime:
+        print(f"[ff] audio16k.wav 已存在（{wav.stat().st_size / 1e6:.1f} MB），跳过转换")
+    else:
+        _to_wav(res["video"], wd)
+    return res
+
+
 def cmd_download(a):
     wd = Path(a.out)
     wd.mkdir(parents=True, exist_ok=True)
@@ -344,6 +437,9 @@ def cmd_download(a):
         else:
             _to_wav(res["video"], wd)     # 视频号最终一定要转写
         return res
+
+    if plat in ("douyin", "xhs", "tiktok"):
+        return _download_short(plat, a, wd)
 
     res = lib_yt.download(a.target, workdir=str(wd), height=a.height,
                           want_video=not a.no_video)
@@ -388,6 +484,14 @@ def cmd_all(a):
 
     def s_wx_info():
         ctx["info"] = _info_wx(a.target, wd)
+
+    def s_short_download():
+        res = _download_short(plat, a, wd)
+        ctx["video"] = res["video"]
+
+    def s_short_info():
+        ctx["info"] = _info_short(plat, a.target, wd,
+                                  getattr(a, "cookie", None))
 
     def s_download():
         cmd_download(argparse.Namespace(
@@ -464,6 +568,14 @@ def cmd_all(a):
                  ("抽帧", s_frames),
                  ("本地 ASR 转写", s_asr),
                  ("生成带时间码文稿", s_transcript)]
+    elif plat in ("douyin", "xhs", "tiktok"):
+        # 先下载再取元信息：元信息本来就藏在同一个分享页里，下载时顺带解析出来，
+        # 比单独再请求一次更省事也更稳（风控对重复请求更敏感）。
+        steps = [(f"下载并解析（{plat}）", s_short_download),
+                 ("读取元信息", s_short_info),
+                 ("抽帧", s_frames),
+                 ("本地 ASR 转写", s_asr),
+                 ("生成带时间码文稿", s_transcript)]
     else:  # bilibili
         steps = [("元信息", s_info),
                  ("下载音视频", s_download),
@@ -497,8 +609,10 @@ def cmd_all(a):
                 kb = p.stat().st_size / 1e3
                 extra = f"（{kb:.0f} KB）" if kb >= 10 else f"（{kb:.1f} KB）"
             print(f"  · {f} {extra}")
-    mode_desc = ("梳理理解学习版（learn）" if a.mode == "learn"
-                 else "方法论反向拆解版（analysis）")
+    mode_desc = {"learn": "学习版（learn）：这条视频讲了什么、怎么理解",
+                 "replicate": "复刻版（replicate）：它怎么做的、我怎么照着做",
+                 "analysis": "复刻版（replicate）：它怎么做的、我怎么照着做",
+                 }.get(a.mode, a.mode)
     print(f"\n下一步：读 transcript.md，按【{mode_desc}】写 outline.json，"
           "再跑 `build` 生成专题页")
     print("  （outline 结构见 SKILL.md「交付物生成」一节）")
@@ -528,11 +642,11 @@ slug       产物文件名基名。必须 ASCII（如 wx-<share_id> / BV<id>）�
 title      页面主标题
 subtitle   副标题，可选
 author     作者 / UP 主
-platform   bilibili | youtube | wxchannels | local（决定页面上的平台标签）
+platform   bilibili | youtube | wxchannels | douyin | xhs | tiktok | local
 duration   "mm:ss"，可选
 date       "YYYY-MM-DD"，可选
 url        原视频链接，可选
-mode       learn（默认）| analysis
+mode       learn（默认）| replicate（双视图，页面默认停在制作线）；analysis 为旧名
 
 sections[i]（章节）
 -------------------
@@ -569,12 +683,36 @@ pitfalls   [{"title": "踩坑点", "text": "说明", "t": 120}]  ← 作者自�
 takeaways  ["可执行结论"]                                  ← 页面末尾的结论卡
 glossary   [{"term": "术语", "def": "解释"}]                ← 外文术语首次出现处要给释义
 
-analysis（仅 mode=analysis 时）
--------------------------------
-{"positioning": "...", "skeleton": "...",
- "methods": ["..."],
+replicate（制作线，写了它页面就变成双视图）
+----------------------------------------
+"replicate": {
+  "snapshot":  {"head": ["维度","做法","你该怎么定"], "rows": [["时长/画幅","48 秒竖屏","先控制 60 秒内"]]},
+  "hook":      {"text": "前 3 秒原话", "why": "为什么有效", "template": "可套用句式"},
+  "beats":     [{"ref": "s1", "name": "抛代价", "t0": 0, "t1": 6,
+                 "role": "阻止划走", "how": "怎么拍/怎么剪",
+                 "shot": "画面 · 机位", "tip": "复刻要点",
+                 "line": "原口播", "xnote": "换个角度的一句话"}],
+  "shots":     [{"desc": "画面", "framing": "景别/机位", "dur": "3s", "props": "道具"}],
+  "script":    [{"seg": "00 · 开场", "t": "0–6s", "pace": "≈5.4 字/秒", "text": "可直接念的稿"}],
+  "assets":    {"器材": ["手机","补光灯"], "场景": ["白墙"], "道具": ["提词器"]},
+  "edit":      {"head": ["环节","参数"], "rows": [["字幕","单行 ≤12 字"]]},
+  "publish":   {"head": ["项","做法"], "rows": [["标题","损失感 + 数字"]]},
+  "checklist": [{"stage": "Day 1", "task": "写结论句", "out": "结论句", "min": 30}],
+  "variants":  ["换受众：把「笔记」换成「简历」"]
+}
+
+  · beats[].ref 必须等于某个 sections[].id —— 这是两条线的配对键。
+    配对上的章节在页面上可互跳，配不上的会显示「这一节在制作线上没有对应动作」
+  · 有 replicate → 页面出现三档视图（学习 / 复刻 / 对照），并记住用户上次选择
+  · 没 replicate → 退回单视图学习版，与旧版行为一致
+  · checklist 勾选进度存在浏览器本地（按 slug 区分），换设备不同步
+
+analysis（旧字段，仍兼容）
+--------------------------
+{"positioning": "...", "skeleton": "...", "methods": ["..."],
  "prep": {"环节": ["要准备什么"]},
  "template": [{"part": "段落", "how": "做法"}]}
+  已并入 replicate 的语义，新写的 outline 不要再用它。
 
 产物
 ----
@@ -615,9 +753,9 @@ def cmd_wx_status(a):
 
 
 def cmd_doctor(a):
-    """环境自检。四个平台的能力分别查，缺谁不影响谁。"""
+    """环境自检。各平台的能力分别查，缺谁不影响谁。"""
     ok = True
-    print("=== 环境自检（B站 + YouTube + 视频号 + 本地） ===\n")
+    print("=== 环境自检（B站 / YouTube / 视频号 / 抖音 / 小红书 / TikTok / 本地） ===\n")
     print(f"Python  : {sys.version.split()[0]}  ({sys.executable})")
 
     for mod, pip in [("faster_whisper", "faster-whisper"),
@@ -676,6 +814,17 @@ def cmd_doctor(a):
     code = (r.stdout or "").strip()
     print(f"视频号  : HTTP {code}")
 
+    for name, url in (("抖音", "https://www.douyin.com/"),
+                      ("小红书", "https://www.xiaohongshu.com/"),
+                      ("TikTok", "https://www.tiktok.com/")):
+        r = bili_digest.run([
+            "curl", "-sS", "-m", "15", "-o", os.devnull,
+            "-A", "Mozilla/5.0", "-w", "%{http_code}", "-L", url])
+        code = (r.stdout or "").strip()
+        print(f"{name:<8}: HTTP {code}"
+              + ("" if code == "200" else "  （不通时该平台不可用；"
+                 "其余平台不受影响）"))
+
     md = Path(a.model) if a.model else bili_digest.DEFAULT_MODEL
     if md.exists():
         size = sum(f.stat().st_size for f in md.glob("*") if f.is_file())
@@ -694,11 +843,16 @@ def main():
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("detect", help="识别平台")
-    s.add_argument("target"); s.set_defaults(f=cmd_detect)
+    s.add_argument("target")
+    s.add_argument("--cookie", default=None,
+                   help="浏览器登录态（抖音/小红书/TikTok 需要时传，形如 \"a=b; c=d\"）")
+    s.set_defaults(f=cmd_detect)
 
     s = sub.add_parser("info"); s.add_argument("target")
     s.add_argument("-o", "--out", default=".")
     s.add_argument("--comment-pages", type=int, default=3)
+    s.add_argument("--cookie", default=None,
+                   help="抖音/小红书/TikTok 的登录态 cookie")
     s.set_defaults(f=cmd_info)
 
     s = sub.add_parser("subs", help="YouTube 字幕直取（跳过 ASR）")
@@ -718,6 +872,8 @@ def main():
     s.add_argument("--no-video", action="store_true", help="只下音频（ASR 用）")
     s.add_argument("--login-mode", choices=["auto", "forbid"], default="auto",
                    help="视频号：auto=缺凭据时弹浏览器扫码；forbid=绝不弹窗")
+    s.add_argument("--cookie", default=None,
+                   help="抖音/小红书/TikTok 的登录态 cookie")
     s.set_defaults(f=cmd_download)
 
     s = sub.add_parser("transcribe"); s.add_argument("audio")
@@ -778,7 +934,11 @@ def main():
     s.add_argument("--no-frames", action="store_true")
     s.add_argument("--login-mode", choices=["auto", "forbid"], default="forbid",
                    help="视频号：agent/批量场景默认 forbid，避免卡在等扫码")
-    s.add_argument("--mode", choices=["learn", "analysis"], default="learn")
+    s.add_argument("--cookie", default=None,
+                   help="抖音/小红书/TikTok 的登录态 cookie")
+    s.add_argument("--mode", choices=["learn", "replicate", "analysis"],
+                   default="learn",
+                   help="learn=学知识；replicate=拆解怎么复制这条视频（analysis 为旧名，等同 replicate）")
     s.set_defaults(f=cmd_all)
 
     a = p.parse_args()

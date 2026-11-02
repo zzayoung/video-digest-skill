@@ -3,6 +3,32 @@
 本项目从两个分支合并而来：`bilibili-video-digest`（B 站单平台 + 自建设计系统）与
 `video-digest v1.0`（四平台 + outline 生成管线）。下列版本按合并后的主线记录。
 
+## v2.1 — 2026-11-02
+
+**新增三个短视频平台 + 一条「怎么复刻」的产出线，并把两条线做进同一个页面。**
+
+新增
+- 抖音：解析分享页 `_ROUTER_DATA`，`playwm → play` 去水印，时长毫秒归一
+- 小红书：解析 `__INITIAL_STATE__`（容忍裸 `undefined`），保留 `xsec_token` 直接取 `media.stream`
+- TikTok：yt-dlp 薄封装 + oEmbed 降级，签名交给社区维护
+- 三平台统一 `--cookie` 传登录态；`detect` 按域名严格区分短链，避免与 b23.tv 混淆
+- `replicate` 制作线：制作快照 / 开场钩子 / 逐段节拍 / 镜头清单 / 口播稿 / 器材素材 /
+  剪辑参数 / 发布策略 / 可勾选执行清单 / 换角度变体
+- **双视图页面**：同一节两个 pane，三档切换（学习 / 复刻 / 对照，快捷键 1/2/3），
+  逐节双向互跳，视图选择按 slug 记忆
+- 执行清单勾选进度本地保存（`localStorage`），口播稿逐段复制、表格整表复制 TSV
+- 表格版 Markdown 同步输出两条路线
+- `tests/test_parsers.py`：三平台解析器离线夹具 + 平台识别路由测试
+
+变更
+- `--mode` 取值改为 `learn` / `replicate`（`analysis` 作为旧名仍兼容，等同 `replicate`）
+- `beats[].ref` 与 `sections[].id` 成为两条线的配对键；未配对的章节在制作线上标注说明
+- 只有存在 `replicate` 时页面才渲染视图切换条，没有时行为与 v2.0 完全一致
+
+修复
+- 键盘快捷键在 `document` 上触发时报错（`e.target.matches` 不存在），改为判断 `tagName`
+- 对照视图下知识骨架图会把对照区推下一屏，改为在 `compare` 视图隐藏
+
 ## v2.0 — 2026-11-02
 
 **四平台能力 × 设计系统，合并为一个技能。**
