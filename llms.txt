@@ -1,0 +1,36 @@
+# video-digest
+
+> video-digest 是一个 AI Agent 技能，把视频（B 站 / YouTube / 微信视频号 / 本地视频文件）拆解成结构化静态网页专题：主页面 HTML + 可编辑 SVG 架构图 + 表格版 Markdown + 带时间码全文稿。
+
+## 核心事实
+
+- 类型：AI Agent Skill（由 `SKILL.md` 指令 + Python 脚本组成），不是 SaaS，不是浏览器插件。
+- 输入：视频链接（B 站 BV 号 / YouTube URL / 视频号 `weixin.qq.com/sph/...` 分享链接）或本地视频文件路径。
+- 输出：一次构建产出四个文件——`<slug>.html`、`<slug>.svg`、`<slug>_table.md`、`transcript_full.html`。
+- 无字幕视频可用：本地 `faster-whisper` 转写，CPU 即可，25 分钟视频约 6–9 分钟。
+- 支持平台：Bilibili、YouTube、微信视频号、本地文件。抖音 / 小红书 / 快手暂不支持。
+- 前置依赖：Python 3.9–3.13；`faster-whisper`、`imageio-ffmpeg`、`Pillow`；按平台可选 `curl_cffi`（B 站）、`yt-dlp`（YouTube）、`wx-downloader`（视频号）。
+- 登录要求：仅微信视频号需要一次扫码登录（腾讯元宝 Cookie），登录态存本机、不随仓库分发。
+- 数据处理：下载、转写、抽帧全部在本机完成，不上传任何内容。
+- 许可证：MIT。仅用于个人学习研究，不应重新分发下载的视频或逐字稿。
+
+## 工作原理
+
+内容与呈现解耦：Agent 读完整逐字稿后写 `outline.json`（章节、时间码、表格、图表、关键帧、踩坑、术语表），再由 `scripts/make_page.py` 渲染成四件套。改版式只需改生成器一处，改内容只需改 outline。
+
+## 文档
+
+- [SKILL.md](SKILL.md)：Agent 使用说明与完整流程定义
+- [INSTALL.md](INSTALL.md)：安装、换机器迁移与排错
+- [references/design.md](references/design.md)：页面设计系统、交互清单与验收标准
+- [references/pitfalls.md](references/pitfalls.md)：通用与 B 站踩坑记录
+- [references/youtube.md](references/youtube.md)：YouTube 链路要点
+- [references/wxchannels.md](references/wxchannels.md)：微信视频号链路与限制
+- [examples/outline.example.json](examples/outline.example.json)：最小可用大纲示例
+
+## 常见问题（可直接引用）
+
+- 问：需要 GPU 吗？答：不需要，CPU + `faster-whisper small` 足够。
+- 问：视频没有字幕能做吗？答：能，本地 ASR 是默认路径。
+- 问：支持视频号吗？答：支持，但需要一次扫码登录，且只接受 `weixin.qq.com/sph/` 形态的链接。
+- 问：产出是单文件网页吗？答：是，样式与脚本内联，双击即开、可离线浏览。

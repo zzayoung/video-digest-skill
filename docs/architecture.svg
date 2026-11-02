@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1160 680" width="1160" height="680" role="img" aria-label="video-digest 架构图：四种输入经取数与转写产出 outline.json，再生成四件套交付物">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#8d969f"/>
+    </marker>
+    <style>
+      .bg{fill:#f7f6f2}
+      .card{fill:#ffffff;stroke:#e4e0d7;stroke-width:1.2}
+      .card-key{fill:#e9f2f6;stroke:#14556e;stroke-width:1.4}
+      .ttl{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;font-size:15px;font-weight:700;fill:#191a1c}
+      .sub{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;font-size:12px;fill:#6b7076}
+      .lbl{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;font-size:11.5px;font-weight:700;fill:#9aa0a6;letter-spacing:1.2px}
+      .tag{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;font-size:10.5px;fill:#14556e}
+      .note{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;font-size:11px;fill:#8d969f}
+      .ln{stroke:#8d969f;stroke-width:1.3;fill:none;marker-end:url(#ar)}
+      .lnd{stroke:#c3beb2;stroke-width:1.2;fill:none;stroke-dasharray:4 4;marker-end:url(#ar)}
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1160" height="680"/>
+
+  <text class="ttl" x="40" y="46" font-size="19">video-digest · 处理管线</text>
+  <text class="sub" x="40" y="70">输入四选一 → 取数与转写 → Agent 写 outline.json → build 渲染四件套</text>
+
+  <!-- ① 输入 -->
+  <text class="lbl" x="40" y="112">① 输入</text>
+  <rect class="card" x="40" y="126" width="240" height="66" rx="10"/>
+  <text class="ttl" x="60" y="154" font-size="14">B 站</text>
+  <text class="sub" x="60" y="175">BV 号 / 视频链接</text>
+
+  <rect class="card" x="320" y="126" width="240" height="66" rx="10"/>
+  <text class="ttl" x="340" y="154" font-size="14">YouTube</text>
+  <text class="sub" x="340" y="175">watch URL / youtu.be</text>
+
+  <rect class="card" x="600" y="126" width="240" height="66" rx="10"/>
+  <text class="ttl" x="620" y="154" font-size="14">微信视频号</text>
+  <text class="sub" x="620" y="175">weixin.qq.com/sph/…</text>
+
+  <rect class="card" x="880" y="126" width="240" height="66" rx="10"/>
+  <text class="ttl" x="900" y="154" font-size="14">本地视频</text>
+  <text class="sub" x="900" y="175">mp4 / mkv / mov</text>
+
+  <!-- ② 取数与转写 -->
+  <text class="lbl" x="40" y="242">② 取数与转写</text>
+  <rect class="card" x="40" y="256" width="700" height="92" rx="10"/>
+  <text class="ttl" x="60" y="284" font-size="14">媒体获取 → 音频 16k → 本地 ASR（faster-whisper）</text>
+  <text class="sub" x="60" y="306">B 站：自研 playurl（wbi 签名 + qn 降级）　·　YouTube：yt-dlp　·　视频号：wx-downloader + 登录态</text>
+  <text class="sub" x="60" y="328">产出：audio16k.wav · asr_segments.json · transcript.md · frames/ + index.json</text>
+
+  <rect class="card" x="780" y="256" width="340" height="92" rx="10" fill="#fbfaf7" stroke-dasharray="5 4"/>
+  <text class="tag" x="800" y="282" font-size="12" font-weight="700">快捷路径</text>
+  <text class="sub" x="800" y="304">YouTube 有字幕轨时直取 timedtext，</text>
+  <text class="sub" x="800" y="323">跳过 483MB 模型与约 10 分钟转写</text>
+
+  <!-- ③ 结构 -->
+  <text class="lbl" x="40" y="392">③ 结构（Agent 完成）</text>
+  <rect class="card-key" x="40" y="406" width="700" height="86" rx="10"/>
+  <text class="ttl" x="60" y="434" font-size="14">读全文 → 分章（真实时间码）→ 提炼骨架 → 写 outline.json</text>
+  <text class="sub" x="60" y="457">sections[] · table · cards · quote · figs · pitfalls · takeaways · glossary</text>
+  <text class="sub" x="60" y="477">内容与呈现解耦：改版式只改 make_page.py，改内容只改 outline</text>
+
+  <!-- ④ 交付 -->
+  <text class="lbl" x="40" y="546">④ 交付（build）</text>
+  <rect class="card" x="40" y="560" width="240" height="66" rx="10"/>
+  <text class="ttl" x="60" y="588" font-size="14">专题页 HTML</text>
+  <text class="sub" x="60" y="609">结论 · 架构图 · 章节 · 关键帧</text>
+
+  <rect class="card" x="320" y="560" width="240" height="66" rx="10"/>
+  <text class="ttl" x="340" y="588" font-size="14">SVG 架构图</text>
+  <text class="sub" x="340" y="609">可编辑，改字即生效</text>
+
+  <rect class="card" x="600" y="560" width="240" height="66" rx="10"/>
+  <text class="ttl" x="620" y="588" font-size="14">表格版 Markdown</text>
+  <text class="sub" x="620" y="609">可直接粘进文档 / 表格</text>
+
+  <rect class="card" x="880" y="560" width="240" height="66" rx="10"/>
+  <text class="ttl" x="900" y="588" font-size="14">全文稿 HTML</text>
+  <text class="sub" x="900" y="609">时间码 · 章节锚点 · 全文搜索</text>
+
+  <!-- 连线 -->
+  <path class="ln" d="M160 192 V250"/>
+  <path class="ln" d="M440 192 V250"/>
+  <path class="ln" d="M720 192 V250"/>
+  <path class="ln" d="M1000 192 V250"/>
+
+  <path class="ln" d="M390 348 V400"/>
+  <path class="lnd" d="M950 348 V400"/>
+  <text class="note" x="962" y="386">字幕已够用时跳过 ASR</text>
+
+  <path class="ln" d="M390 492 V554"/>
+  <path class="ln" d="M390 512 H160 V554" fill="none"/>
+  <path class="ln" d="M390 512 H720 V554" fill="none"/>
+  <path class="ln" d="M390 512 H1000 V554" fill="none"/>
+
+  <text class="note" x="40" y="656">关键约束：B 站未登录最高 480P · 视频号无字幕轨必走 ASR · 下载与转写全在本机完成，不上传任何内容</text>
+</svg>

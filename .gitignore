@@ -1,0 +1,20 @@
+# 忽略运行时产物与本地环境
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# 工作目录（下载的视频、抽帧、转写中间件）
+work/
+out/
+*.wav
+*.m4s
+*.mp4
+frames/
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log

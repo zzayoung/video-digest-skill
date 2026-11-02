@@ -1,0 +1,13 @@
+# video-digest 运行依赖
+# 安装：python scripts/setup_env.py
+# 手动装：pip install -r requirements.txt
+
+# —— 全平台必需 ——
+faster-whisper>=1.0.0      # 本地 ASR（无字幕时）
+imageio-ffmpeg>=0.4.9      # 自带 ffmpeg 二进制：音频转 16k + 抽帧
+Pillow>=9.0                # 帧图缩放
+
+# —— 按平台可选（缺谁不影响谁）——
+curl_cffi>=0.5             # 仅 B 站 playurl（TLS 指纹）
+yt-dlp>=2024.1.0           # 仅 YouTube
+wx-downloader>=0.1.2       # 仅微信视频号；会带入 playwright
