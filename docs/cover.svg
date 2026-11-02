@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="340" viewBox="0 0 1200 340" role="img" aria-labelledby="title desc">
+  <title id="title">片悟 Pianwu — 学懂内容，拆出拍法</title>
+  <desc id="desc">一个视频输入，关联学习笔记与创作拆解，再形成可以带走的专题页。</desc>
+  <rect width="1200" height="340" rx="24" fill="#f5f3ed"/>
+  <path d="M32 0H1168a32 32 0 0 1 32 32v4H0v-4A32 32 0 0 1 32 0" fill="#14556e"/>
+  <g font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Noto Sans CJK SC,Microsoft YaHei,sans-serif">
+    <text x="56" y="84" fill="#14556e" font-size="18" font-weight="700" letter-spacing="3">PIANWU · VIDEO TO UNDERSTANDING</text>
+    <text x="56" y="152" fill="#162c36" font-size="42" font-weight="750">Learn the content.</text>
+    <text x="56" y="200" fill="#162c36" font-size="42" font-weight="750">Unpack the craft.</text>
+    <text x="56" y="286" fill="#536670" font-size="17">HTML  /  Editable SVG  /  Markdown  /  Transcript*</text>
+    <rect x="692" y="67" width="451" height="94" rx="15" fill="#e3edf0" stroke="#c4d5dc"/>
+    <rect x="692" y="181" width="451" height="94" rx="15" fill="#f5e9d3" stroke="#decb9f"/>
+    <path d="M671 114H650v114h21" fill="none" stroke="#9aa9ae" stroke-width="2"/>
+    <circle cx="650" cy="171" r="5" fill="#14556e"/>
+    <text x="717" y="101" fill="#14556e" font-size="14" font-weight="700" letter-spacing="2">LEARN</text>
+    <text x="717" y="138" fill="#173b4d" font-size="25" font-weight="650">Ideas · Steps · Structure</text>
+    <text x="717" y="215" fill="#976817" font-size="14" font-weight="700" letter-spacing="2">CREATE</text>
+    <text x="717" y="252" fill="#644c24" font-size="25" font-weight="650">Shots · Script · Checklist</text>
+    <text x="1143" y="310" text-anchor="end" fill="#6d7a80" font-size="13">Paired by section · *When a transcript is supplied</text>
+  </g>
+</svg>

@@ -4,9 +4,9 @@ description: 把视频（B站 / YouTube / 微信视频号 / 抖音 / 小红书 /
 agent_created: true
 ---
 
-# 视频拆解 → 结构化专题页（学习线 × 制作线）
+# 片悟 · Pianwu：视频拆解 → 结构化专题页（学习线 × 制作线）
 
-拿到一个视频（链接或本地文件），产出一套**可直接交付**的专题页：HTML 主页面 + 可编辑 SVG 架构图 + 纯表格版 Markdown + 带时间码的完整文稿页。
+拿到一个视频（链接或本地文件），产出一套**可直接交付**的专题页：HTML 主页面 + 可编辑 SVG 架构图 + 纯表格版 Markdown；提供文稿 JSON 时，再生成带时间码的完整文稿页。图集不要求音频全文稿。
 
 同一份内容支持**两个读法**，在同一个页面里切换：
 
@@ -34,15 +34,15 @@ agent_created: true
 | 图文作品 | — | — | ✗ 暂不支持 | **✓ 图集** | **✓ 九宫格** | — | **✓ 图片目录** |
 
 > **短视频三站（抖音/小红书/TikTok）的现实**：都没有公开 API，播放地址藏在页面 JSON 或需要签名，
-> 匿名请求会被降级。三者统一支持 `--cookie` 传浏览器登录态；图文作品（非视频）当前不支持。
+> 匿名请求会被降级。三者统一支持 `--cookie` 传浏览器登录态；抖音图集、小红书九宫格和本地图片目录走图集分支。
 > 具体链路与排错见 `references/douyin.md`、`references/xhs.md`、`references/tiktok.md`。
 
 ## 快速开始
 
-**先确认环境**：新机器先读 `INSTALL.md` 装依赖；之后统一用技能根目录的 `run.py`（会自动挑解释器）。
+**先确认环境**：先读当前技能目录的 `INSTALL.md`，按实际宿主与安装位置执行。新机器处理真实媒体前装依赖；之后统一用技能根目录的 `run.py`（会自动挑解释器）。只体验内置示例时，直接使用 `scripts/make_page.py`，不必先安装媒体依赖。
 
 ```bash
-cd ~/.workbuddy/skills/video-digest
+# 以下命令在本技能实际安装目录执行，路径见 INSTALL.md。
 
 python scripts/setup_env.py          # 首次：venv + 依赖 + 模型 + 自检
 python run.py doctor                 # 各平台能力分别列出
@@ -50,7 +50,7 @@ python run.py doctor                 # 各平台能力分别列出
 # 识别平台（拿不准时）
 python run.py detect "https://v.douyin.com/xxxx/"
 
-# 全流程
+# 准备素材与文稿（之后由 Agent 写 outline.json，再 build）
 python run.py all BV1t8oAYuEVf -o ./work --mode replicate      # B 站
 python run.py all "https://www.youtube.com/watch?v=xxxx" -o ./work
 python run.py all "https://weixin.qq.com/sph/xxxx" -o ./work   # 需先 wx-login
@@ -68,7 +68,9 @@ python run.py build --schema       # 打印 outline.json 全部字段
 ```
 
 `--mode` 三个取值：`learn`（默认）、`replicate`、`analysis`（旧名，等同 replicate）。
-**它只决定页面默认停在哪条线**——只要 outline 里有 `replicate`，两条线都会生成。
+**`all --mode` 只提供下一步的内容方向提示，不会自动写入大纲。** Agent 应在 `outline.meta.mode` 中设置默认视图；只要 outline 里有 `replicate`，两条线都会生成。
+
+`all` 不会自动调用大模型或生成 `outline.json`。素材准备完成后，Agent 读取文稿与选定画面，按下文格式编写大纲，再执行 `build`。
 
 ## 交付物生成（核心价值）
 
@@ -254,19 +256,25 @@ python run.py wx-status
 | `<slug>.html` | 主页面：双视图（有 replicate 时）+ 结论 + 架构图 + 章节 + 图 + 表 |
 | `<slug>.svg` | 可编辑架构图 |
 | `<slug>_table.md` | 纯表格版，**含两条路线**（学习表格 + 复刻方案全套表 + 图集表格） |
-| `transcript_full.html` | 带时间码全文稿，章节锚点 + 全文搜索 |
+| `transcript_full.html` | 提供有效 `--transcript` JSON 时生成：带时间码全文稿，章节锚点 + 全文搜索 |
+
+## 数据与交付边界
+
+本地脚本负责媒体处理、CPU 转写、抽帧与页面渲染；依赖安装、模型下载、平台请求与 `doctor` 连通性检查会联网。宿主 Agent 读取文稿和画面时，可能发送给其配置的云端模型，不要把本地 ASR 解释为全程离线。当前 CLI 没有 `--device cuda` 参数。
+
+交付或分享时，把主 HTML、SVG、全文稿（如已生成）和引用的 `frames/` / `images/` 一起保留。更换输出目录不会自动复制图片；优先在 outline 所在目录构建。
 
 ## 验收清单（每次交付前必做）
 
 **通用**
 
-- [ ] `build` 四件套齐全，无报错
+- [ ] `build` 的 HTML、SVG、Markdown 齐全；有音频文稿时提供 `--transcript` 并核对全文稿页，无报错
 - [ ] Edge headless 整页截图看过：首屏、架构图、至少一个表格区
 - [ ] 架构图底部不裁、徽章数字是白字
 - [ ] 表格 hover 出「复制表格」，点一下真能复制
 - [ ] 关键帧能点开放大，`Esc` 能关
 - [ ] 主题钮切暗色后无白底残留；刷新后保持
-- [ ] 全文稿页搜一个词能过滤并高亮
+- [ ] 已生成全文稿时：搜一个词能过滤并高亮
 - [ ] 375px 窄屏不横向溢出
 - [ ] 打印预览里没有导航、进度条、浮动按钮
 
