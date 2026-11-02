@@ -511,17 +511,37 @@ JS_TOC = r"""
 
   var lb=document.getElementById('lightbox');
   if(lb){
+    var imgs=[].slice.call(document.querySelectorAll('figure img'));
+    var cur=-1;
+    function closeLb(){lb.classList.remove('on');lb.innerHTML='';
+      document.body.style.overflow='';}
+    function showLb(i){
+      if(!imgs.length)return;
+      cur=(i+imgs.length)%imgs.length;
+      var im=imgs[cur];
+      var cap=im.getAttribute('data-cap')||im.alt||'';
+      var many=imgs.length>1;
+      var bar=(cap||many)
+        ? '<div class="lb-cap"><span>'+(cap||'')+'</span>'
+          +'<span class="lb-n">'+(cur+1)+' / '+imgs.length+'</span></div>' : '';
+      lb.innerHTML='<div class="lb-box"><img src="'+im.src+'" alt="'+(im.alt||'')+'">'
+        +bar+'</div>'
+        +(many?'<button class="lb-nav lb-prev" type="button" aria-label="上一张">‹</button>'
+              +'<button class="lb-nav lb-next" type="button" aria-label="下一张">›</button>':'');
+      lb.classList.add('on');document.body.style.overflow='hidden';
+    }
     document.addEventListener('click',function(e){
       var img=e.target.closest('figure img');
-      if(img){
-        lb.innerHTML='<img src="'+img.src+'" alt="'+(img.alt||'')+'">';
-        lb.classList.add('on');document.body.style.overflow='hidden';return;
-      }
-      if(e.target===lb){lb.classList.remove('on');document.body.style.overflow='';}
+      if(img){showLb(imgs.indexOf(img));return;}
+      if(e.target.closest('.lb-prev')){showLb(cur-1);return;}
+      if(e.target.closest('.lb-next')){showLb(cur+1);return;}
+      if(e.target===lb||e.target.closest('.lb-box')){closeLb();}
     });
     document.addEventListener('keydown',function(e){
-      if(e.key==='Escape'&&lb.classList.contains('on')){
-        lb.classList.remove('on');document.body.style.overflow='';}
+      if(!lb.classList.contains('on'))return;
+      if(e.key==='Escape')closeLb();
+      if(e.key==='ArrowLeft')showLb(cur-1);
+      if(e.key==='ArrowRight')showLb(cur+1);
     });
   }
 
@@ -701,6 +721,7 @@ body[data-view="learn"] .only-repl{display:none}
 body[data-view="replicate"] .only-learn{display:none}
 body[data-view="replicate"] .pane.empty{display:none}
 body[data-view="learn"] .toc-repl{display:none}
+body[data-view="replicate"] .toc-learn{display:none}
 body[data-view="compare"] .sr-only-view{display:none}
 /* 对照视图优先看「同一节的两个角度」，骨架图先收起（它和目录信息重复） */
 body[data-view="compare"] .diagram.only-learn{display:none}
@@ -1047,8 +1068,9 @@ def render_viewbar(o):
                    f'aria-selected="false" title="{VIEW_LABEL[v][1]}">'
                    f'{label}<span class="k">{idx}</span></button>')
     out.append("</div>")
-    hint = (f'<span class="vb-hint">同一份内容，两个角度 · '
-            f'<b>{n_beat}</b> 节已配对 · 按 <b>1/2/3</b> 切换</span>')
+    tail = f' · <b>{n_beat}</b> 节已配对' if n_beat else ""
+    hint = (f'<span class="vb-hint">同一份内容，两个角度{tail} · '
+            f'按 <b>1/2/3</b> 切换</span>')
     out.append(hint + "</div>")
     return "".join(out)
 
@@ -1173,6 +1195,163 @@ def render_replicate_globals(rep, has_tx):
     return "".join(out)
 
 
+# ---------------------------------------------------------------------------
+# 图集（图文作品）：九宫格 + 逐图说明
+#
+# 为什么图集不复用「章节流」
+# --------------------------
+# 视频的阅读单位是「段落」，图集的阅读单位是「图」。把 9 张图塞进 section 的
+# figs 字段里，会退化成「一坨图 + 一段文字」，既看不出九宫格的排布意图，
+# 也没法逐图对照它为什么这么拍。
+# 所以图集单独一层：网格承载「看」，下面的逐图列表承载「读」——
+# 学习线读这张图在说什么，制作线读这张图为什么这样做。
+# ---------------------------------------------------------------------------
+
+GAL_CSS = """
+.gal{display:grid;gap:10px;margin:14px 0 6px}
+.gal.grid{grid-template-columns:repeat(auto-fill,minmax(168px,1fr))}
+.gal.c2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.gal.c3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.gal.c4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.gal.list{grid-template-columns:minmax(0,1fr);gap:16px}
+.gal .tile{margin:0;background:var(--surface);border:1px solid var(--line);
+  border-radius:10px;overflow:hidden;position:relative;transition:.16s}
+.gal .tile:hover{transform:translateY(-2px);box-shadow:var(--shadow)}
+.gal .tile img{display:block;width:100%;height:auto;cursor:zoom-in;
+  aspect-ratio:3/4;object-fit:cover;background:var(--surface-2)}
+.gal.list .tile img{aspect-ratio:auto;max-height:70vh;object-fit:contain}
+.gal .tile figcaption{display:flex;gap:8px;align-items:baseline;padding:7px 10px;
+  font-size:12px;color:var(--muted);border-top:1px solid var(--line);flex-wrap:wrap}
+.gal .tile .idx{font-variant-numeric:tabular-nums;font-weight:700;color:var(--accent);
+  font-size:11.5px}
+.gal .tile .role{font-size:11px;border:1px solid currentColor;border-radius:999px;
+  padding:0 7px;color:var(--warn)}
+.gal .tile .cvr{position:absolute;top:8px;left:8px;background:var(--accent);
+  color:var(--on-accent);font-size:10.5px;font-weight:700;border-radius:5px;
+  padding:2px 7px;letter-spacing:.04em}
+
+/* 逐图说明 */
+.gnotes{margin:18px 0 0;border-top:1px solid var(--line)}
+.gn{display:grid;grid-template-columns:44px minmax(0,1fr);gap:4px 14px;
+  padding:14px 0;border-bottom:1px dashed var(--line)}
+.gn-no{font-size:12px;font-weight:700;color:var(--accent);background:var(--accent-soft);
+  border-radius:6px;text-align:center;padding:2px 0;align-self:start;
+  font-variant-numeric:tabular-nums}
+.gn h4{margin:0 0 6px;font-size:14.5px;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.gn h4 .grole{font-size:11px;color:var(--warn);border:1px solid currentColor;
+  border-radius:999px;padding:0 7px;font-weight:500}
+.gn p{margin:0 0 6px;font-size:13.5px;color:var(--ink-2)}
+.gn p:last-child{margin-bottom:0}
+.gn .g-design{color:var(--ink-2)}
+.gn .g-design::before{content:"制作视角　";font-size:11.5px;color:var(--warn);
+  font-weight:600;letter-spacing:.02em}
+
+/* 灯箱增强：图集内左右翻页 */
+#lightbox .lb-box{position:relative;display:inline-block;max-width:100%}
+#lightbox .lb-cap{position:absolute;left:0;right:0;bottom:0;padding:10px 14px;
+  font-size:12.5px;color:#fff;background:linear-gradient(transparent,rgba(0,0,0,.72));
+  border-radius:0 0 8px 8px;display:flex;gap:10px;align-items:baseline}
+#lightbox .lb-n{margin-left:auto;font-variant-numeric:tabular-nums;opacity:.85}
+#lightbox .lb-nav{position:fixed;top:50%;transform:translateY(-50%);width:44px;height:64px;
+  display:grid;place-items:center;border:0;border-radius:10px;cursor:pointer;
+  background:rgba(255,255,255,.14);color:#fff;font-size:22px;line-height:1}
+#lightbox .lb-nav:hover{background:rgba(255,255,255,.28)}
+#lightbox .lb-prev{left:16px}
+#lightbox .lb-next{right:16px}
+@media(max-width:760px){
+  #lightbox .lb-nav{width:36px;height:52px;font-size:18px}
+  .gal.grid,.gal.c2,.gal.c3,.gal.c4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media print{.gal{grid-template-columns:repeat(3,1fr)}#lightbox{display:none}}
+"""
+
+
+def render_gallery(o, has_tx):
+    """图集区：网格 + 逐图说明。两种视图共用，但说明分两轨显示。"""
+    gal = o.get("gallery") or {}
+    items = gal.get("items") or []
+    if not items:
+        return ""
+
+    layout = "list" if (gal.get("layout") or "grid").lower() == "list" else "grid"
+    n = len(items)
+    cols = "c2" if n <= 2 else ("c3" if n <= 6 else "c4")
+    if layout == "grid" and n > 0:
+        layout = f"grid {cols}"
+    cover = gal.get("cover") or (items[0].get("src") if items else None)
+
+    out = ['<section id="gallery"><div class="shead">'
+           f'<span class="snum">▦</span><h3>图集（{len(items)} 张）</h3>',
+           f'<span class="kicker">{esc(gal.get("note") or "点图放大，可左右翻页")}</span>',
+           "</div>"]
+    if gal.get("lead"):
+        out.append(f'<div class="lead">{esc(gal["lead"])}</div>')
+
+    tiles = [f'<div class="gal {layout}">']
+    for i, it in enumerate(items, 1):
+        src = it.get("src") or ""
+        role = it.get("role") or ""
+        cap = it.get("cap") or ""
+        badges = ""
+        if cover and src == cover:
+            badges = '<span class="cvr">封面</span>'
+        tiles.append(
+            f'<figure class="tile">{badges}'
+            f'<img src="{esc(src)}" alt="{esc(cap)}" loading="lazy" '
+            f'data-cap="{esc(cap)}" data-idx="{i}">'
+            f'<figcaption><span class="idx">{i:02d}</span>'
+            f'<span>{esc(_clip(cap, 26))}</span>'
+            + (f'<span class="role">{esc(role)}</span>' if role else "")
+            + "</figcaption></figure>")
+    tiles.append("</div>")
+    out.append("".join(tiles))
+
+    notes = [it for it in items if it.get("note") or it.get("design")]
+    if notes:
+        out.append('<div class="gnotes">')
+        for i, it in enumerate(items, 1):
+            note, design = it.get("note"), it.get("design")
+            if not (note or design):
+                continue
+            head = [f'<span class="gn-no">{i:02d}</span>', "<div>",
+                    "<h4>" + esc(it.get("cap") or f"第 {i} 张"),
+                    (f'<span class="grole">{esc(it["role"])}</span>'
+                     if it.get("role") else ""),
+                    "</h4>"]
+            if note:
+                head.append(f'<p class="g-note only-learn">{_md(note)}</p>')
+            if design:
+                head.append(f'<p class="g-design only-repl">{_md(design)}</p>')
+            head.append("</div>")
+            out.append('<div class="gn">' + "".join(head) + "</div>")
+        out.append("</div>")
+
+    # 视觉配方（制作线）
+    rec = gal.get("recipe")
+    if rec:
+        rows = rec.get("rows") if isinstance(rec, dict) else rec
+        head = (rec.get("head") if isinstance(rec, dict) else None) or ["维度", "做法"]
+        out.append('<div class="rblock only-repl" id="recipe"><h3>视觉配方</h3>'
+                   '<p class="sub">照着这张表，你也能排出同一套视觉</p>'
+                   + _table({"head": head, "rows": rows}) + "</div>")
+
+    # 文案结构（两条线都值得看：学习线看它怎么说话，制作线看怎么复用）
+    cp = gal.get("copy")
+    if cp:
+        body = ['<div class="rblock" id="copy"><h3>文案结构</h3>']
+        if cp.get("title"):
+            body.append(f'<p><b>标题：</b>{_md(cp["title"])}</p>')
+        if cp.get("body"):
+            body.append("<ul>" + "".join(f"<li>{_md(x)}</li>" for x in cp["body"]) + "</ul>")
+        if cp.get("tags"):
+            body.append('<p>' + " ".join(f'<span class="chip">#{esc(t.lstrip("#"))}</span>'
+                                         for t in cp["tags"]) + "</p>")
+        body.append("</div>")
+        out.append("".join(body))
+
+    out.append("</section>")
+    return "".join(out)
+
+
 def render_html(o, svg_name, has_tx, tx_name="transcript_full.html"):
     m = o.get("meta") or {}
     secs = o.get("sections") or []
@@ -1193,7 +1372,9 @@ def render_html(o, svg_name, has_tx, tx_name="transcript_full.html"):
                       "replicate": "复刻方案版"}.get(mode, mode)
     plat = PLATFORM_LABEL.get(m.get("platform"), m.get("platform") or "")
 
-    style = CSS + (REPL_CSS if dual else "")
+    gal = o.get("gallery") or {}
+    style = (CSS + (REPL_CSS if dual else "")
+             + (GAL_CSS if gal.get("items") else ""))
     out = ['<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">',
            '<meta name="viewport" content="width=device-width,initial-scale=1">',
            f"<title>{esc(m.get('title'))} · 视频拆解</title>",
@@ -1225,8 +1406,10 @@ def render_html(o, svg_name, has_tx, tx_name="transcript_full.html"):
     if len(secs):
         meta_bits.append(f'<span>章节 <b>{len(secs)}</b></span>')
     if dual:
+        n_beat = sum(len(v) for v in beats.values())
         paired = sum(1 for s in secs if beats.get(s.get("id") or ""))
-        meta_bits.append(f'<span>已配对 <b>{paired}/{len(secs)}</b></span>')
+        if n_beat and paired:
+            meta_bits.append(f'<span>已配对 <b>{paired}/{len(secs)}</b></span>')
     if m.get("url"):
         meta_bits.append(f'<span>来源 <a href="{esc(m["url"])}" target="_blank" '
                          'rel="noopener">原链接</a></span>')
@@ -1241,17 +1424,31 @@ def render_html(o, svg_name, has_tx, tx_name="transcript_full.html"):
     nav = ['<nav class="toc"><p class="ttl">目录</p>']
     if o.get("tldr"):
         nav.append('<a href="#tldr" data-id="tldr">核心结论</a>')
+    if (o.get("gallery") or {}).get("items"):
+        n_img = len(o["gallery"]["items"])
+        nav.append(f'<a href="#gallery" data-id="gallery">图集（{n_img}）</a>')
     for i, s in enumerate(secs):
         sid = esc(s.get("id") or f"s{i+1}")
-        mark = " ↔" if dual and beats.get(s.get("id") or "") else ""
-        nav.append(f'<a href="#{sid}" data-id="{sid}">{i+1}. '
+        paired = bool(beats.get(s.get("id") or ""))
+        mark = " ↔" if dual and paired else ""
+        cls = '' if (not dual or paired) else ' class="toc-learn"'
+        nav.append(f'<a{cls} href="#{sid}" data-id="{sid}">{i+1}. '
                    f'{esc(_clip(s.get("title"), 18))}{mark}</a>')
     if dual:
-        nav.append('<div class="toc-repl" style="height:6px"></div>')
-        for anchor, label in (("hook", "开场钩子"), ("shots", "镜头清单"),
-                              ("script", "口播稿"), ("checklist", "执行清单")):
-            nav.append(f'<a class="toc-repl" href="#{anchor}" data-id="{anchor}">'
-                       f'{label}</a>')
+        entries = []
+        if rep.get("hook"):
+            entries.append(("hook", "开场钩子"))
+        if rep.get("shots"):
+            entries.append(("shots", "镜头清单"))
+        if rep.get("script"):
+            entries.append(("script", "口播稿"))
+        if rep.get("checklist"):
+            entries.append(("checklist", "执行清单"))
+        if entries:
+            nav.append('<div class="toc-repl" style="height:6px"></div>')
+            for anchor, label in entries:
+                nav.append(f'<a class="toc-repl" href="#{anchor}" data-id="{anchor}">'
+                           f'{label}</a>')
     if o.get("pitfalls"):
         nav.append('<div style="height:6px"></div>')
         nav.append('<a href="#pitfalls" data-id="pitfalls">踩坑与提醒</a>')
@@ -1274,6 +1471,10 @@ def render_html(o, svg_name, has_tx, tx_name="transcript_full.html"):
             out.append("<ol>" + "".join(f"<li>{_md(x)}</li>" for x in o["tldr"])
                        + "</ol>")
         out.append("</div>")
+
+    # 图集（图文作品的主体内容）
+    if (o.get("gallery") or {}).get("items"):
+        out.append(render_gallery(o, has_tx))
 
     # 架构图（学习线的知识骨架）
     if svg_name:

@@ -58,6 +58,7 @@
 | `glossary` | 术语表（两列表格） | 最后 |
 | `analysis` | 旧字段，等同 `replicate` | — |
 | `replicate` | 制作线：三档视图 + 逐节配对 + 清单 | 与学习线并存 |
+| `gallery` | 图集：网格 + 逐图说明 + 视觉配方 + 文案结构 | 结论之后、骨架图之前 |
 
 组件写作约定：
 
@@ -199,3 +200,62 @@ MSEDGE="C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
 - 制作侧标题用 `R01` 而不是 `01`，避免与学习侧编号混淆；标题后跟章节名（12.5px，`--faint`）。
 - 节拍块用 `--warn` 系配色（琥珀），学习侧用 `--accent`（深青），两栏一眼可辨。
 - `compare` 的 `.pair` 用 `align-items:start`，两侧高度不等时不要拉伸。
+
+
+---
+
+## 九、图集页（图文作品）
+
+### 9.1 为什么单独一套
+
+视频的阅读单位是**段落**，图集的阅读单位是**图**。把 9 张图塞进 `sections[].figs` 会退化成
+「一坨图 + 一段文字」：看不出九宫格的排布意图，也没法逐图对照它为什么这么拍。
+
+所以图集是独立区块：网格负责「看」，下方逐图列表负责「读」。
+
+### 9.2 DOM 结构
+
+```html
+<section id="gallery">
+  <div class="shead">▦ 图集（6 张）</div>
+  <div class="lead">这组图的用途</div>
+  <div class="gal grid c3">
+    <figure class="tile">
+      <span class="cvr">封面</span>
+      <img src="images/01.jpg" data-cap="图注" data-idx="1">
+      <figcaption><span class="idx">01</span><span>图注</span><span class="role">封面</span></figcaption>
+    </figure>…
+  </div>
+  <div class="gnotes">           <!-- 逐图说明：同图两解 -->
+    <div class="gn"><span class="gn-no">01</span><div>
+      <h4>图注<span class="grole">封面</span></h4>
+      <p class="g-note only-learn">学习线：这张在说什么</p>
+      <p class="g-design only-repl">制作线：为什么这么做</p>
+    </div></div>…
+  </div>
+  <div class="rblock only-repl" id="recipe">视觉配方表</div>
+  <div class="rblock" id="copy">文案结构</div>
+</section>
+```
+
+`g-note` / `g-design` 复用双视图的 `only-learn` / `only-repl` 规则——
+不额外发明机制，图集自然继承三档视图。
+
+### 9.3 排版规则
+
+| 规则 | 做法 | 为什么 |
+|---|---|---|
+| 列数 | 按张数：≤2 两列、≤6 三列、>6 四列 | 6 张摆 3×2 才像九宫格，摆 4 列会留一排空缺 |
+| 缩略图比例 | `aspect-ratio:3/4` + `object-fit:cover` | 不统一比例会让网格参差 |
+| 封面角标 | 左上角实心 chip，只在 `cover` 那张出现 | 让读者知道哪张是被投放的封面 |
+| 逐图说明 | 44px 序号列 + 内容列，分隔线只画虚线 | 和图注形成"编号—解释"的对应关系 |
+| 灯箱 | 支持 `←` `→` 翻页、`n / N` 计数、底部图注渐变条 | 九宫格逐张点开翻页，比关掉再点快得多 |
+| 窄屏 | 统一两列，序号列收窄 | 保持可点面积 |
+
+### 9.4 验收补充
+
+- [ ] 图集缩略图比例一致，无拉伸变形
+- [ ] 点任意图能进灯箱，`←` `→` 能翻页，`n / N` 数字正确
+- [ ] 学习线只出现 `note`、制作线只出现 `design`，对照视图两段都在
+- [ ] 视觉配方表只在制作线出现，且可整表复制
+- [ ] 图集在没有 `sections` 的 outline 下也能正常渲染

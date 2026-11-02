@@ -11,7 +11,9 @@
 - 配对机制：`replicate.beats[].ref` 等于某个 `sections[].id`，两者可双向跳转；配不上的章节会在制作线上标注「没有对应动作」。
 - 页面交互：三档视图（快捷键 1/2/3，选择记忆在 localStorage）、逐节互跳、亮暗主题、阅读进度、灯箱、表格复制 TSV、口播稿分段复制、执行清单勾选（进度本地保存）、全文稿搜索高亮。
 - 无字幕视频可用：本地 `faster-whisper` 转写，CPU 即可，25 分钟视频约 6–9 分钟。
-- 支持平台：Bilibili、YouTube、微信视频号、抖音、小红书、TikTok、本地文件。图文作品（非视频）暂不支持。
+- 支持平台：Bilibili、YouTube、微信视频号、抖音、小红书、TikTok、本地文件。
+- 图文作品：抖音图集、小红书九宫格、本地图片目录走**图集分支**（无音轨、不转写、不抽帧），产出图集页；
+  同一张图有两个读法——`note` 在学习线显示，`design` 在制作线显示。视频号图文暂无可靠下载路径。
 - 前置依赖：Python 3.9–3.13；`faster-whisper`、`imageio-ffmpeg`、`Pillow`；按平台可选 `curl_cffi`（B 站）、`yt-dlp`（YouTube/TikTok）、`wx-downloader`（视频号）。
 - 登录要求：视频号需一次扫码；抖音 / 小红书 / TikTok 匿名可用但常被降级，必要时用 `--cookie` 传浏览器登录态。小红书链接必须带 `xsec_token`。
 - 数据处理：下载、转写、抽帧全部在本机完成，不上传任何内容。
@@ -34,6 +36,7 @@
 - [references/wxchannels.md](references/wxchannels.md)：微信视频号链路与限制
 - [examples/outline.example.json](examples/outline.example.json)：学习版最小大纲
 - [examples/outline.replicate.json](examples/outline.replicate.json)：双视图（学习 + 复刻）完整示例
+- [examples/outline.gallery.json](examples/outline.gallery.json)：图集（九宫格）示例，含逐图两轨说明
 - [tests/test_parsers.py](tests/test_parsers.py)：三平台解析器离线夹具
 
 ## 常见问题（可直接引用）
@@ -42,6 +45,7 @@
 - 问：视频没有字幕能做吗？答：能，本地 ASR 是默认路径。
 - 问：学习线和制作线必须都写吗？答：不必，没有 `replicate` 块时页面退回单视图学习版。
 - 问：支持视频号吗？答：支持，但需要一次扫码登录，且只接受 `weixin.qq.com/sph/` 形态的链接。
-- 问：支持抖音 / 小红书 / TikTok 吗？答：支持视频，图文作品暂不支持；三者都没有公开 API，匿名请求可能被降级，必要时用 `--cookie`。
+- 问：支持抖音 / 小红书 / TikTok 吗？答：视频与图文作品都支持；三者都没有公开 API，匿名请求可能被降级，必要时用 `--cookie`。
+- 问：图文作品怎么处理？答：走图集分支，产出图集页（九宫格 + 逐图两轨说明 + 视觉配方），不转写不抽帧。
 - 问：做同款会不会侵权？答：制作线提供的是结构与技法，请用自有内容填充；不要照搬他人文案与画面。
 - 问：产出是单文件网页吗？答：是，样式与脚本内联，双击即开、可离线浏览。

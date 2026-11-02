@@ -54,7 +54,11 @@ window._ROUTER_DATA = {"loaderData":{"video_(7391)/page":{"videoInfoRes":{
 DOUYIN_IMAGE_HTML = """
 <html><body><script>
 window._ROUTER_DATA = {"loaderData":{"note_(1)/page":{"videoInfoRes":{"item_list":[{
-  "aweme_id":"1","desc":"图文笔记","images":[{"url_list":["https://x/1.jpg"]}]
+  "aweme_id":"1","desc":"图文笔记 #旅行",
+  "author":{"nickname":"图集账号"},
+  "images":[{"url_list":["https://p3.douyinpic.com/a.jpg","https://p9.douyinpic.com/a.jpg"]},
+            {"url_list":["https://p3.douyinpic.com/b.jpg"]},
+            {"url_list":["//p3.douyinpic.com/c.jpg"]}]
 }]}}}};
 </script></body></html>
 """
@@ -79,9 +83,12 @@ window.__INITIAL_STATE__={"note":{"noteDetailMap":{"66aa11bb22cc33dd44ee55ff":{
 XHS_IMAGE_HTML = """
 <html><body><script>
 window.__INITIAL_STATE__={"note":{"noteDetailMap":{"abc123abc123abc123abc1":{
-  "note":{"noteId":"abc123abc123abc123abc1","title":"图文","desc":"",
+  "note":{"noteId":"abc123abc123abc123abc1","title":"九宫格","desc":"正文",
     "user":{"nickname":"u"},
-    "imageList":[{"urlDefault":"https://x/1.jpg"}]}}}}};
+    "imageList":[
+      {"urlDefault":"https://sns-img.xhscdn.com/1.jpg"},
+      {"url":"https://sns-img.xhscdn.com/2.jpg"},
+      {"urlDefault":null,"infoList":[{"url":"https://sns-img.xhscdn.com/3.jpg"}]}]}}}}};
 </script></body></html>
 """
 
@@ -107,12 +114,14 @@ def main():
     check("话题提取", d["tags"] == ["效率", "副业"], str(d["tags"]))
     check("封面地址", (d["cover"] or "").startswith("https://"), str(d["cover"]))
 
-    print("[3] 抖音：图文作品应给出明确错误")
-    try:
-        lib_douyin.parse_share(DOUYIN_IMAGE_HTML)
-        check("图文抛 ShortError", False, "没抛异常")
-    except S.ShortError as e:
-        check("图文抛 ShortError", "图文" in str(e), str(e)[:60])
+    print("[3] 抖音：图文作品走图集分支")
+    dg = lib_douyin.parse_share(DOUYIN_IMAGE_HTML)
+    check("kind=images", dg["kind"] == "images", dg["kind"])
+    check("取到 3 张图", len(dg["image_urls"]) == 3, str(len(dg["image_urls"])))
+    check("多候选取第一个 https", dg["image_urls"][0].startswith("https://p3."), dg["image_urls"][0])
+    check("协议相对地址补 https", dg["image_urls"][2].startswith("https://"), dg["image_urls"][2])
+    check("图文没有播放地址", not dg.get("play_url"), str(dg.get("play_url")))
+    check("图文也带话题", dg["tags"] == ["旅行"], str(dg["tags"]))
 
     print("[4] 小红书：__INITIAL_STATE__ 解析")
     x = lib_xhs.parse_share(XHS_HTML)
@@ -124,12 +133,13 @@ def main():
     check("收藏数（字符串原样）", x["stat"]["collect"] == "3000", str(x["stat"]))
     check("类型 video", x["type"] == "video", x["type"])
 
-    print("[5] 小红书：图文笔记应给出明确错误")
-    try:
-        lib_xhs.parse_share(XHS_IMAGE_HTML)
-        check("图文抛 ShortError", False, "没抛异常")
-    except S.ShortError as e:
-        check("图文抛 ShortError", "图文" in str(e), str(e)[:60])
+    print("[5] 小红书：图文笔记走图集分支")
+    xg = lib_xhs.parse_share(XHS_IMAGE_HTML)
+    check("kind=images", xg["kind"] == "images", xg["kind"])
+    check("三种图片字段都能取", len(xg["image_urls"]) == 3, str(xg["image_urls"]))
+    check("第二张走 url 字段", xg["image_urls"][1].endswith("/2.jpg"), xg["image_urls"][1])
+    check("第三张走 infoList[].url", xg["image_urls"][2].endswith("/3.jpg"), xg["image_urls"][2])
+    check("图文无 play_url", not xg.get("play_url"), str(xg.get("play_url")))
 
     print("[6] 平台识别（不联网）")
     import video_digest as V
@@ -145,6 +155,12 @@ def main():
         ("https://youtu.be/dQw4w9WgXcQ", "youtube"),
         ("https://weixin.qq.com/sph/AC7XUrwG7z", "wxchannels"),
     ]
+
+    # 本地图片：用临时目录造一张图
+    import tempfile
+    tmp = Path(tempfile.mkdtemp())
+    (tmp / "1.jpg").write_bytes(b"\xff\xd8\xff\xd9" + b"0" * 4096)
+    cases = cases + [(str(tmp), "local-images"), (str(tmp / "1.jpg"), "local-images")]
     for url, want in cases:
         try:
             got = V.detect(url)

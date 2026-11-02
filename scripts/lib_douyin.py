@@ -11,7 +11,7 @@
 已知边界（务必看 references/douyin.md）
   · 免登录通常只拿得到 720p、且部分作品会降级成「仅封面」
   · 私密 / 好友可见 / 已删除作品一律失败
-  · 图文（非视频）作品没有 play_addr，需要另走图集分支（暂不支持）
+  · 图文作品（`images` 而非 `video`）走图集分支：没有 play_addr，只有 N 张图
 
 解析部分写成纯函数，便于离线用夹具测试；联网行为放在 video_info / download。
 """
@@ -22,6 +22,7 @@ import json
 import re
 from pathlib import Path
 
+import lib_images
 import lib_short as S
 from lib_short import ShortError
 
@@ -61,6 +62,20 @@ def parse_target(target: str, cookie: str | None = None) -> dict:
 
 
 # ------------------------------------------------------------------ 解析
+
+def _image_urls(item):
+    """抖音图集：`images[]` 每项形如 {"url_list": [...]}，取第一个可用地址。"""
+    out = []
+    for im in item.get("images") or []:
+        if isinstance(im, str):
+            u = S.normalize_url(im)
+        else:
+            u = S.first_http((im.get("url_list") or [])
+                             + (im.get("download_url_list") or []))
+        if u:
+            out.append(u)
+    return out
+
 
 def parse_share(html: str) -> dict:
     """从分享页 HTML 解析出统一结构。纯函数，离线可测。
@@ -107,7 +122,8 @@ def parse_share(html: str) -> dict:
             "author": "", "desc": S.meta_content(html, "og:description") or "",
             "duration": 0, "width": None, "height": None,
             "play_url": S.normalize_url(og_video), "cover": None,
-            "stat": {}, "tags": [], "images": [], "raw_kind": "og",
+            "stat": {}, "tags": [], "images": [], "image_urls": [],
+            "kind": "video", "raw_kind": "og",
         }
 
     video = item.get("video") or {}
@@ -120,12 +136,8 @@ def parse_share(html: str) -> dict:
         play_url = (f"https://aweme.snssdk.com/aweme/v1/play/"
                     f"?video_id={play['uri']}&ratio=1080p&line=0")
 
-    if not play_url:
-        images = item.get("images") or []
-        if images:
-            raise ShortError(
-                "这是**图文作品**（不是视频），当前版本只处理视频。"
-                "图文分支尚未实现，见 references/douyin.md「已知边界」")
+    image_urls = _image_urls(item)
+    if not play_url and not image_urls:
         raise ShortError("没解析到播放地址：作品可能受限（私密/付费/地区）")
 
     dur_ms = video.get("duration") or item.get("duration") or 0
@@ -152,6 +164,8 @@ def parse_share(html: str) -> dict:
             "collect": stats.get("collect_count"),
         },
         "tags": re.findall(r"#([^\s#]+)", desc),
+        "kind": "video" if play_url else "images",
+        "image_urls": image_urls,
         "images": item.get("images") or [],
         "raw_kind": "router_data",
     }
@@ -197,6 +211,11 @@ def video_info(target, workdir=".", video_path=None, cookie=None):
     info.update({k: parsed[k] for k in
                  ("title", "author", "desc", "duration", "width", "height",
                   "stat", "tags")})
+    info["kind"] = parsed.get("kind") or "video"
+    if info["kind"] == "images":
+        info["images_count"] = len(parsed.get("image_urls") or [])
+        info["has_subtitle"] = False
+        info["note"] = "图文作品：无音轨，走图集分支（不转写、不抽帧）"
     info["thumbnail"] = parsed.get("cover")
     if video_path and Path(video_path).exists():
         info["local_video"] = str(video_path)
@@ -224,6 +243,8 @@ def download(target, workdir=".", cookie=None, referer="https://www.douyin.com/"
 
     html = fetch_share_page(t["id"], cookie=cookie, workdir=str(wd))
     parsed = parse_share(html)
+    if parsed.get("kind") == "images":
+        return _download_images(wd, parsed, cookie, referer, timeout)
 
     start = wd / "video.part.mp4"
     size = S.download_media(parsed["play_url"], start, referer=referer,
@@ -241,6 +262,30 @@ def download(target, workdir=".", cookie=None, referer="https://www.douyin.com/"
 
     return {"video": str(dest), "skipped": False, "title": parsed["title"],
             "author": parsed["author"], "bytes": size, "url": parsed["play_url"]}
+
+
+def _download_images(wd, parsed, cookie, referer, timeout=180):
+    """图集下载：落 images/01.jpg…，写 images_index.json。"""
+    items, failed = lib_images.download_all(
+        parsed.get("image_urls") or [], wd, referer=referer, cookie=cookie,
+        timeout=timeout)
+    if not items:
+        raise ShortError("图集一张都没下下来，可能是直链过期或需要 cookie")
+    meta = {"platform": PLATFORM, "title": parsed.get("title"),
+            "author": parsed.get("author"), "desc": parsed.get("desc"),
+            "tags": parsed.get("tags"), "webpage_url": None}
+    lib_images.write_manifest(wd, items, meta, failed)
+
+    info = _blank({"id": parsed.get("aweme_id", ""), "url": ""})
+    info.update({"kind": "images", "title": parsed.get("title") or "",
+                 "owner": parsed.get("author") or "", "desc": parsed.get("desc") or "",
+                 "stat": parsed.get("stat") or {}, "tags": parsed.get("tags") or [],
+                 "images_count": len(items), "has_subtitle": False})
+    (wd / "info.json").write_text(
+        json.dumps(info, ensure_ascii=False, indent=1), encoding="utf-8")
+    return {"kind": "images", "video": None, "images": items, "failed": failed,
+            "title": info["title"], "author": info["owner"],
+            "bytes": sum(x["bytes"] for x in items)}
 
 
 def _blank(t):

@@ -24,6 +24,7 @@ import json
 import re
 from pathlib import Path
 
+import lib_images
 import lib_short as S
 from lib_short import ShortError
 
@@ -61,6 +62,23 @@ def parse_target(target: str, cookie: str | None = None) -> dict:
 
 # ------------------------------------------------------------------ 解析
 
+def _image_urls(note):
+    """小红书图集：`imageList[]` 里有 urlDefault / 旧版 url / infoList[].url 多种落点。"""
+    out = []
+    for im in note.get("imageList") or []:
+        if isinstance(im, str):
+            u = S.normalize_url(im)
+        else:
+            cands = [im.get("urlDefault"), im.get("url"), im.get("urlPre")]
+            for info in im.get("infoList") or []:
+                if isinstance(info, dict):
+                    cands.append(info.get("url"))
+            u = S.first_http([c for c in cands if c])
+        if u:
+            out.append(u)
+    return out
+
+
 def parse_share(html: str) -> dict:
     """从笔记页 HTML 解析统一结构。纯函数，离线可测。"""
     if not html:
@@ -94,7 +112,8 @@ def parse_share(html: str) -> dict:
             "author": "", "desc": S.meta_content(html, "og:description") or "",
             "duration": 0, "width": None, "height": None,
             "play_url": S.normalize_url(og_video), "cover": None,
-            "stat": {}, "tags": [], "images": [], "type": "video",
+            "stat": {}, "tags": [], "images": [], "image_urls": [],
+            "kind": "video", "type": "video",
         }
 
     video = note.get("video") or {}
@@ -114,12 +133,10 @@ def parse_share(html: str) -> dict:
     if not play_url:
         play_url = S.first_http(S.dig(note, "video.consumer.originVideoKey"))
 
-    images = note.get("imageList") or []
-    kind = "video" if play_url else ("image" if images else "unknown")
-    if not play_url and kind == "image":
-        raise ShortError(
-            "这是**图文笔记**（不是视频），当前版本只处理视频笔记。"
-            "图文分支见 references/xhs.md「已知边界」")
+    image_urls = _image_urls(note)
+    kind = "video" if play_url else ("images" if image_urls else "unknown")
+    if not play_url and not image_urls:
+        raise ShortError("笔记里既没有视频也没有图片，可能是纯文字笔记")
 
     dur = S.dig(video, "capa.duration") or S.dig(video, "capa.durationMs")
     if dur and dur > 1000:            # 有些版本给毫秒
@@ -146,7 +163,9 @@ def parse_share(html: str) -> dict:
             "share": interact.get("shareCount"),
         },
         "tags": [t.get("name") for t in (note.get("tagList") or []) if t.get("name")],
-        "images": images,
+        "image_urls": image_urls,
+        "images": note.get("imageList") or [],
+        "kind": kind,
         "type": kind,
     }
 
@@ -178,6 +197,10 @@ def video_info(target, workdir=".", video_path=None, cookie=None):
     info.update({k: parsed[k] for k in
                  ("title", "author", "desc", "duration", "width", "height",
                   "stat", "tags")})
+    info["kind"] = parsed.get("kind") or "video"
+    if info["kind"] == "images":
+        info["images_count"] = len(parsed.get("image_urls") or [])
+        info["note"] = "图文笔记：无音轨，走图集分支（不转写、不抽帧）"
     info["thumbnail"] = parsed.get("cover")
     if video_path and Path(video_path).exists():
         info["local_video"] = str(video_path)
@@ -203,6 +226,8 @@ def download(target, workdir=".", cookie=None, referer="https://www.xiaohongshu.
 
     html = fetch_note_page(t, cookie=cookie, workdir=str(wd))
     parsed = parse_share(html)
+    if parsed.get("kind") == "images":
+        return _download_images(wd, parsed, cookie, referer, timeout)
 
     part = wd / "video.part.mp4"
     size = S.download_media(parsed["play_url"], part, referer=referer,
@@ -220,6 +245,30 @@ def download(target, workdir=".", cookie=None, referer="https://www.xiaohongshu.
 
     return {"video": str(dest), "skipped": False, "title": parsed["title"],
             "author": parsed["author"], "bytes": size, "url": parsed["play_url"]}
+
+
+def _download_images(wd, parsed, cookie, referer, timeout=180):
+    """图集下载：落 images/01.jpg…，写 images_index.json。"""
+    items, failed = lib_images.download_all(
+        parsed.get("image_urls") or [], wd, referer=referer, cookie=cookie,
+        timeout=timeout)
+    if not items:
+        raise ShortError("图集一张都没下下来：直链可能过期，或该笔记需要 cookie")
+    meta = {"platform": PLATFORM, "title": parsed.get("title"),
+            "author": parsed.get("author"), "desc": parsed.get("desc"),
+            "tags": parsed.get("tags")}
+    lib_images.write_manifest(wd, items, meta, failed)
+
+    info = _blank({"id": parsed.get("note_id", ""), "url": ""})
+    info.update({"kind": "images", "title": parsed.get("title") or "",
+                 "owner": parsed.get("author") or "", "desc": parsed.get("desc") or "",
+                 "stat": parsed.get("stat") or {}, "tags": parsed.get("tags") or [],
+                 "images_count": len(items), "has_subtitle": False})
+    (wd / "info.json").write_text(
+        json.dumps(info, ensure_ascii=False, indent=1), encoding="utf-8")
+    return {"kind": "images", "video": None, "images": items, "failed": failed,
+            "title": info["title"], "author": info["owner"],
+            "bytes": sum(x["bytes"] for x in items)}
 
 
 def _blank(t):

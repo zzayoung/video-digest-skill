@@ -52,7 +52,8 @@ xhslink.com/xxx ──curl -L──▶ xiaohongshu.com/explore/<id>?xsec_token=.
 ## 已知边界
 
 - **未登录通常只能拿到 720p 左右的 `masterUrl`**，更高清需要登录态。
-- **图文笔记**（`imageList`，没有 `video`）当前不支持，会抛带说明的 `ShortError`。
+- **图文笔记**（`imageList`，没有 `video`）：已支持，走图集分支。图片地址按
+  `urlDefault → url → infoList[].url` 的顺序取，兼容新旧三种字段。
 - **登录墙**：部分笔记对未登录用户直接返回登录页，报错会提示加 `--cookie`。
 - 短链有效期有限，过期需重新复制。
 
@@ -85,6 +86,6 @@ ls ./work/debug_xhs_*.html
 |---|---|---|
 | `没有找到 __INITIAL_STATE__` | 缺 `xsec_token` / 笔记删除 / 仅自己可见 | 用 App「分享 → 复制链接」重新取 |
 | `要求登录（登录墙）` | 该笔记需登录 | 加 `--cookie "web_session=..."` |
-| 下到的是图片 | 图文笔记 | 当前不支持图文，见上 |
+| 图集缺几张 | 单张直链过期 | 重跑会补；`images_index.json.failed` 里有清单 |
 | 只有 720p | 未登录 | 加 cookie |
 | `认不出小红书笔记 ID` | 链接形态不对 | 需要 `xhslink.com` 短链或 `/explore/<id>` |

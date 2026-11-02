@@ -41,6 +41,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import lib_yt      # noqa: E402
 import lib_wx      # noqa: E402
+import lib_images  # noqa: E402
 import lib_douyin  # noqa: E402
 import lib_xhs     # noqa: E402
 import lib_tiktok  # noqa: E402
@@ -66,12 +67,18 @@ def detect(target):
     if not t:
         raise SystemExit("[err] 目标为空")
 
-    # 1) 本地文件：存在且有媒体后缀
+    # 1) 本地：目录=图集，文件=音视频
     p = Path(t).expanduser()
+    if p.exists() and p.is_dir():
+        if lib_images.has_images(p):
+            return "local-images"
+        raise SystemExit(f"[err] 目录里没有图片：{p}")
     if p.exists() and p.is_file():
         if p.suffix.lower() in VIDEO_EXT + AUDIO_EXT:
             return "local"
-        raise SystemExit(f"[err] 不是音视频文件：{p}")
+        if lib_images.is_image_file(p):
+            return "local-images"
+        raise SystemExit(f"[err] 不是音视频/图片文件：{p}")
 
     # 2) 视频号分享链接
     if lib_wx.is_channel(t):
@@ -197,6 +204,11 @@ def cmd_detect(a):
         t = lib_tiktok.parse_target(a.target, cookie=cookie)
         print("video_id:", t["id"])
         print("normalized:", t["url"])
+    elif p == "local-images":
+        items = _collect_local_images(a.target)
+        print("图片数:", len(items))
+        for it in items[:5]:
+            print(f"  · {it['src']}  {it.get('width') or '?'}x{it.get('height') or '?'}")
     elif p == "local":
         pr = lib_wx.probe(a.target)
         print("duration:", _fmt_dur(pr.get("duration")),
@@ -215,6 +227,9 @@ def cmd_info(a):
     if plat == "bilibili":
         return bili_digest.cmd_info(argparse.Namespace(
             bvid=a.target, out=str(wd), comment_pages=a.comment_pages))
+
+    if plat == "local-images":
+        return _info_local_images(a.target, wd)
 
     if plat == "local":
         return _info_local(a.target, wd)
@@ -247,6 +262,38 @@ def cmd_info(a):
         print(f"\n热评 {len(cs)} 条 → comments.json")
         for c in cs[:5]:
             print(f"  · [{c['like']}赞] {c['text'][:70]}")
+    return info
+
+
+def _collect_local_images(target):
+    """本地图片：支持「目录」或「单张图」。返回 manifest 条目。"""
+    p = Path(target).expanduser()
+    if p.is_dir():
+        return lib_images.from_local_dir(p)
+    w, h = lib_images.probe_size(p)
+    return [{"src": str(p.resolve()), "idx": 1, "bytes": p.stat().st_size,
+             "width": w, "height": h, "source": str(p)}]
+
+
+def _info_local_images(target, wd):
+    items = _collect_local_images(target)
+    if not items:
+        raise SystemExit(f"[err] 没找到图片：{target}")
+    manifest = lib_images.write_manifest(wd, items, {"platform": "local"})
+    info = {
+        "platform": "local", "kind": "images",
+        "bvid": Path(target).stem, "aid": Path(target).stem, "cid": Path(target).stem,
+        "title": Path(target).stem, "owner": "", "owner_mid": "", "pubdate": "",
+        "duration": 0, "desc": "", "stat": {}, "tags": [], "categories": [],
+        "webpage_url": str(Path(target).resolve()), "thumbnail": None,
+        "has_subtitle": False, "subtitle_langs": [], "images_count": len(items),
+    }
+    (wd / "info.json").write_text(
+        json.dumps(info, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"图片数: {len(items)}")
+    for it in items[:8]:
+        print(f"  · {Path(it['src']).name}  {it.get('width') or '?'}x{it.get('height') or '?'}")
+    print("说明  : 图集无音轨，不做转写/抽帧；直接写 outline（含 gallery）再 build")
     return info
 
 
@@ -320,7 +367,11 @@ def _info_short(plat, target, wd, cookie=None):
     if info.get("tags"):
         print("话题  : " + " ".join("#" + t for t in info["tags"][:8]))
     print(f"简介  : {(info.get('desc') or '')[:160] or '(空)'}")
-    print("字幕  : 无（短视频平台的字幕是画面硬字/贴纸 → 必走 ASR）")
+    if info.get("kind") == "images":
+        print(f"形态  : 图文 / 图集（{info.get('images_count') or 0} 张）"
+              "→ 不转写、不抽帧，直接出图集页")
+    else:
+        print("字幕  : 无（短视频平台的字幕是画面硬字/贴纸 → 必走 ASR）")
     if info.get("error"):
         print(f"⚠  {info['error']}")
     return info
@@ -391,6 +442,17 @@ def _download_short(plat, a, wd):
     lib = {"douyin": lib_douyin, "xhs": lib_xhs, "tiktok": lib_tiktok}[plat]
     cookie = getattr(a, "cookie", None)
     res = lib.download(a.target, str(wd), cookie=cookie)
+    if res.get("kind") == "images":
+        n = len(res.get("images") or [])
+        print(f"[{plat}] 图集下载完成：{n} 张 → {wd / 'images'}")
+        print(f"     标题: {res.get('title') or '(未取到)'}")
+        print(f"     作者: {res.get('author') or '(未知)'}")
+        print(f"     体积: {res['bytes'] / 1e6:.1f} MB")
+        if res.get("failed"):
+            print(f"     [warn] {len(res['failed'])} 张失败，见 images_index.json")
+        print("     图集无音轨 → 跳过 wav 转换")
+        return res
+
     print(f"[{plat}] {'已存在，跳过' if res['skipped'] else '下载完成'}")
     print(f"     标题: {res.get('title') or '(未取到)'}")
     print(f"     作者: {res.get('author') or '(未知)'}")
@@ -468,6 +530,12 @@ def cmd_all(a):
     steps = []
 
     # ---------- 各步骤实现 ----------
+    def s_local_images():
+        ctx["info"] = _info_local_images(a.target, wd)
+        ctx["kind"] = "images"
+        ctx["images"] = (json.loads((wd / "images_index.json").read_text(
+            encoding="utf-8")).get("items") or [])
+
     def s_local_info():
         ctx["info"] = _info_local(a.target, wd)
         ctx["video"] = str(Path(a.target).resolve())
@@ -487,7 +555,9 @@ def cmd_all(a):
 
     def s_short_download():
         res = _download_short(plat, a, wd)
-        ctx["video"] = res["video"]
+        ctx["kind"] = res.get("kind") or "video"
+        ctx["images"] = res.get("images") or []
+        ctx["video"] = res.get("video")
 
     def s_short_info():
         ctx["info"] = _info_short(plat, a.target, wd,
@@ -511,6 +581,9 @@ def cmd_all(a):
             return False
 
     def s_asr():
+        if ctx.get("kind") == "images":
+            print("    （图集没有音轨，跳过转写）")
+            return
         if not (wd / "audio16k.wav").exists():
             src = ctx["video"] or _find_video(wd)
             if not src:
@@ -523,6 +596,9 @@ def cmd_all(a):
         ctx["via"] = "asr"
 
     def s_frames():
+        if ctx.get("kind") == "images":
+            print("    （图集本身就是图，跳过抽帧）")
+            return
         src = ctx["video"] or _find_video(wd)
         if not src:
             print("    （无可用视频文件，跳过抽帧）")
@@ -532,6 +608,9 @@ def cmd_all(a):
             width=getattr(a, "width", 960)))
 
     def s_transcript():
+        if ctx.get("kind") == "images":
+            print("    （图集无文稿）")
+            return
         bili_digest.cmd_transcript(argparse.Namespace(
             segments=str(ctx["segs"]), out=str(wd / "transcript.md")))
 
@@ -557,6 +636,8 @@ def cmd_all(a):
                       ("抽帧", s_frames),
                       ("本地 ASR 转写", s_asr)]
         steps += [("生成带时间码文稿", s_transcript)]
+    elif plat == "local-images":
+        steps = [("读取图片目录", s_local_images)]
     elif plat == "local":
         steps = [("读取本地文件", s_local_info),
                  ("抽帧", s_frames),
@@ -598,6 +679,11 @@ def cmd_all(a):
 
     print("=" * 60)
     print(f"全部完成 → {wd.resolve()}")
+    if ctx.get("kind") == "images":
+        print(f"形态    : 图集（{len(ctx.get('images') or [])} 张图片）")
+        print("清单    : images_index.json（含尺寸，写 gallery 时引用 images/01.jpg）")
+        print("下一步  : 写 outline.json（含 gallery 块）→ build 生成图集页")
+        return
     print(f"文稿方式: {ctx['via'] or '未生成'}")
     for f in ("info.json", "asr_segments.json", "transcript.md", "frames"):
         p = wd / f
@@ -643,6 +729,7 @@ title      页面主标题
 subtitle   副标题，可选
 author     作者 / UP 主
 platform   bilibili | youtube | wxchannels | douyin | xhs | tiktok | local
+kind       video（默认）| images（图文作品，配合 gallery 使用）
 duration   "mm:ss"，可选
 date       "YYYY-MM-DD"，可选
 url        原视频链接，可选
@@ -682,6 +769,26 @@ pitfalls / takeaways / glossary
 pitfalls   [{"title": "踩坑点", "text": "说明", "t": 120}]  ← 作者自己的失误/警告，高价值
 takeaways  ["可执行结论"]                                  ← 页面末尾的结论卡
 glossary   [{"term": "术语", "def": "解释"}]                ← 外文术语首次出现处要给释义
+
+gallery（图文作品：抖音图集 / 小红书九宫格 / 本地图片目录）
+--------------------------------------------------------
+"gallery": {
+  "layout": "grid",              // grid=九宫格（默认，按张数自动 2/3/4 列）| list=大图纵向
+  "cover": "images/01.jpg",      // 封面角标，默认第一张
+  "note": "点开可左右翻页",
+  "lead": "一句话说明这组图的用途",
+  "items": [{"src": "images/01.jpg", "role": "封面",
+             "cap": "一句话图注",
+             "note": "学习线：这张在说什么",
+             "design": "制作线：这张为什么这么做（版式/配色/字号）"}],
+  "recipe": {"head": ["维度","做法"], "rows": [["画幅","3:4 竖图统一"]]},
+  "copy":   {"title": "标题写法", "body": ["正文结构"], "tags": ["话题"]}
+}
+
+  · meta.kind = "images" 时页面把图集放在结论之后、骨架图之前
+  · note 只在学习线显示，design 只在制作/对照显示 —— 同一张图两个读法
+  · 图集可以没有 sections / replicate；也可以只写这两者之一
+  · 本地目录直接喂：`python run.py all ./我的图集 -o ./work`
 
 replicate（制作线，写了它页面就变成双视图）
 ----------------------------------------

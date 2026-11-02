@@ -18,12 +18,13 @@ jobs:
       - name: 语法检查（全部脚本）
         run: python -m compileall -q scripts run.py
 
-      - name: 渲染两种路线（不需要视频/模型）
+      - name: 渲染三种形态（不需要视频/模型/图片）
         run: |
-          mkdir -p /tmp/learn /tmp/repl
+          mkdir -p /tmp/learn /tmp/repl /tmp/gal
           python scripts/make_page.py examples/outline.example.json -o /tmp/learn
           python scripts/make_page.py examples/outline.replicate.json -o /tmp/repl
-          ls -l /tmp/learn /tmp/repl
+          python scripts/make_page.py examples/outline.gallery.json -o /tmp/gal
+          ls -l /tmp/learn /tmp/repl /tmp/gal
 
       - name: 学习版结构断言
         run: |
@@ -74,6 +75,29 @@ jobs:
           for needle in ("复刻线：制作方案", "制作快照", "镜头清单", "执行清单", "口播稿"):
               print(("OK   " if needle in md else "FAIL ") + needle)
               assert needle in md
+          PY
+
+      - name: 图集页结构断言
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("/tmp/gal/example-gallery.html").read_text(encoding="utf-8")
+          checks = {
+              "图集区块": 'id="gallery"' in html,
+              "六张图": html.count('class="tile"') == 6,
+              "封面角标": 'class="cvr"' in html,
+              "网格按张数定列": "gal grid c3" in html,
+              "逐图说明": html.count('class="gn"') == 6,
+              "学习/制作两轨说明": html.count('class="g-note only-learn"') == 6
+                                  and html.count('class="g-design only-repl"') == 6,
+              "视觉配方": 'id="recipe"' in html,
+              "文案结构": 'id="copy"' in html,
+              "双视图仍在": 'class="viewbar"' in html,
+              "灯箱翻页": "lb-prev" in html and "lb-next" in html,
+          }
+          for k, v in checks.items():
+              print(("OK   " if v else "FAIL ") + k)
+              assert v, k
           PY
 
       - name: 平台解析器离线夹具

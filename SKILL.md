@@ -31,6 +31,7 @@ agent_created: true
 | 文稿来源 | 本地 ASR | **优先字幕直取** | 本地 ASR | 本地 ASR | 本地 ASR | 本地 ASR | 本地 ASR |
 | 媒体获取 | 自研 playurl | yt-dlp | `wx-downloader` + 登录态 | play_addr（去水印） | `media.stream` | yt-dlp | 无需下载 |
 | 前置条件 | 无 | 无 | 扫码一次 | 部分需 cookie | **需带 xsec_token** | 部分需 cookie | 文件存在 |
+| 图文作品 | — | — | ✗ 暂不支持 | **✓ 图集** | **✓ 九宫格** | — | **✓ 图片目录** |
 
 > **短视频三站（抖音/小红书/TikTok）的现实**：都没有公开 API，播放地址藏在页面 JSON 或需要签名，
 > 匿名请求会被降级。三者统一支持 `--cookie` 传浏览器登录态；图文作品（非视频）当前不支持。
@@ -151,6 +152,46 @@ transcript.md + frames/  ──(你：读、分章、提炼)──▶  outline.j
 `beats[].xnote` 是**双向关联的落点**：用一句话把同一处内容在两个视角下的叫法对上，
 读者在对照视图里看到左右两栏时会立刻"哦，原来是同一件事"。
 
+## 图文作品（图集）：另一条媒体形态
+
+抖音图集、小红书九宫格、本地图片目录**不走视频链路**：没有音轨、不转写、不抽帧，
+产出是一张图集页。取数入口不用改，同一个 `all`：
+
+```bash
+python run.py all "https://www.xiaohongshu.com/explore/<id>?xsec_token=..." -o ./work
+python run.py all "https://v.douyin.com/xxxx/" -o ./work
+python run.py all "C:/我的图集/" -o ./work          # 本地图片目录（也支持单张图）
+```
+
+产出 `images/01.jpg…` + `images_index.json`（含每张的宽高与体积），然后写 outline：
+
+```json
+{
+  "meta": {"kind": "images", "platform": "xhs", "mode": "replicate"},
+  "gallery": {
+    "layout": "grid",
+    "cover": "images/01.jpg",
+    "items": [
+      {"src": "images/01.jpg", "role": "封面", "cap": "封面说了什么",
+       "note": "学习线：这张在传达什么",
+       "design": "制作线：为什么这么排版 / 配色 / 字号"}
+    ],
+    "recipe": {"head": ["维度", "做法"], "rows": [["画幅", "3:4 竖图统一"]]},
+    "copy":   {"title": "标题写法", "body": ["正文结构"], "tags": ["话题"]}
+  }
+}
+```
+
+要点：
+
+- **`note` 与 `design` 是同一张图的两个读法**：前者在「知识学习」显示，后者在「怎么复刻 / 对照」显示。
+  这是图集版实现"融会贯通"的方式——不是两段文字，而是同图两解。
+- 图集页的灯箱支持 `←` `→` 翻页与 `n / N` 计数，点任意缩略图进入。
+- 网格列数按张数自动定：≤2 两列、≤6 三列、更多四列；窄屏统一两列。
+- **图集可以完全没有 `sections` / `replicate`**，只有 gallery 也能出页；反过来也成立。
+- 视频号图文目前没有可靠的第三方下载路径（下载器只处理视频）——
+  可行做法是手动存图后用 `local-images`（`all <目录>`）走同一套图集页。
+
 ## 页面形态：三档视图
 
 有 `replicate` 时，页面顶部出现切换条，键盘 `1 / 2 / 3` 也能切：
@@ -212,7 +253,7 @@ python run.py wx-status
 |---|---|
 | `<slug>.html` | 主页面：双视图（有 replicate 时）+ 结论 + 架构图 + 章节 + 图 + 表 |
 | `<slug>.svg` | 可编辑架构图 |
-| `<slug>_table.md` | 纯表格版，**含两条路线**（学习表格 + 复刻方案全套表） |
+| `<slug>_table.md` | 纯表格版，**含两条路线**（学习表格 + 复刻方案全套表 + 图集表格） |
 | `transcript_full.html` | 带时间码全文稿，章节锚点 + 全文搜索 |
 
 ## 验收清单（每次交付前必做）
@@ -268,7 +309,8 @@ MSEDGE="C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
 - **抖音**：分享页给的是 `playwm`（带水印），改成 `play` 才是无水印；时长字段是**毫秒**
 - **小红书**：链接**必须带 `xsec_token`**，只抠 note_id 会失败；`__INITIAL_STATE__` 里有裸 `undefined`，不是严格 JSON
 - **TikTok**：签名交给 yt-dlp，失败先 `pip install -U yt-dlp`，别急着改代码
-- **图文作品**（抖音/小红书的非视频内容）当前不支持，会明确报错而不是乱下
+- **图文作品**走图集分支：不转写、不抽帧；`images_index.json` 里带尺寸，选图注时用它
+- **图集不凑九宫格**：张数由信息块决定；多出来的图会稀释完读率
 - **裸 11 位 ID 有歧义**：视频号 share id 与 YouTube video id 字符集重合，`detect` 会探测消歧
 - **抽帧时间码**：一律查 `frames/index.json`
 - **后台任务**：用 `run_in_background=true`，`nohup &` 会被回收

@@ -56,6 +56,7 @@ video-digest 把两件事放在同一份内容里：**同一个章节，左边�
 | 文稿来源 | 本地 ASR | **优先字幕直取** | 本地 ASR | 本地 ASR | 本地 ASR | 本地 ASR | 本地 ASR |
 | 媒体获取 | 自研 playurl | yt-dlp | `wx-downloader` | play_addr（去水印） | `media.stream` | yt-dlp | 无需下载 |
 | 前置条件 | 无 | 无 | 扫码一次 | 部分需 cookie | **需带 xsec_token** | 部分需 cookie | 文件存在 |
+| 图文作品 | — | — | 暂不支持 | **图集** | **九宫格** | — | **图片目录** |
 
 几条实测结论，能帮你少走弯路：
 
@@ -65,13 +66,35 @@ video-digest 把两件事放在同一份内容里：**同一个章节，左边�
 - **小红书链接必须带 `xsec_token`**，只抠 note_id 重新拼 URL 一定失败。
 - **TikTok 的签名交给 yt-dlp**，失败先升级 yt-dlp，别急着改代码。
 
+## 图文作品也能做
+
+抖音图集、小红书九宫格、本地图片目录**不套视频链路**：没有音轨，不转写、不抽帧，产出是图集页。
+入口不用换：
+
+```bash
+python run.py all "https://xhslink.com/xxxx" -o ./work     # 小红书九宫格
+python run.py all "https://v.douyin.com/xxxx/" -o ./work   # 抖音图集
+python run.py all "C:/我的图集/" -o ./work                  # 本地图片目录
+```
+
+得到 `images/01.jpg…` + `images_index.json`，然后在 outline 里写 `gallery`。
+
+图集页关键设计：**同一张图有两个读法**——`note` 在「知识学习」显示（这张在说什么），
+`design` 在「怎么复刻 / 对照」显示（为什么这么排版）。同一张图，两个角度，不是两段废话。
+
+- 网格列数按张数自动定（≤2 两列、≤6 三列、更多四列），缩略图统一 3:4，封面带角标
+- 灯箱支持 `←` `→` 翻页与 `n / N` 计数
+- 制作线额外给「视觉配方」（画幅/配色/字体/版式/顺序）与「文案结构」（标题/正文/话题）
+
+视频号图文目前没有可靠的第三方下载路径，手动存图后用 `local-images` 走同一套页面。
+
 ## 产出物
 
 一次 `build` 产出四件，彼此互相引用、风格统一：
 
 | 文件 | 内容 |
 |---|---|
-| `<slug>.html` | 主页面：三档视图（学习 / 复刻 / 对照）+ 架构图 + 表格 + 关键帧 + 时间码 |
+| `<slug>.html` | 主页面：三档视图（学习 / 复刻 / 对照）+ 架构图 + 表格 + 关键帧；图文作品则为图集页 |
 | `<slug>.svg` | 独立可编辑架构图，直接改文字、刷新即生效 |
 | `<slug>_table.md` | 纯表格版，**含两条路线**，方便粘进飞书 / 腾讯文档 / Excel |
 | `transcript_full.html` | 全文稿页，章节锚点 + 全文搜索 + 命中高亮 |
@@ -167,7 +190,8 @@ python run.py build --schema        # 打印 outline.json 全部字段说明
 它们的解析规则会用离线夹具锁住（`tests/test_parsers.py`），平台改结构时会先在这里断掉。
 
 **Q：图文作品支持吗？**
-暂不支持。抖音和小红书的图文（非视频）会明确报错，不会瞎下。
+支持。抖音图集、小红书九宫格、本地图片目录都走图集分支（不转写、不抽帧），产出图集页。
+视频号的图文暂无可靠下载路径，可手动存图后用 `all <目录>` 走同一套。
 
 **Q：会占用多少磁盘？**
 完整环境约 1.2 GB（venv 约 500 MB + ASR 模型 483 MB）。只做有字幕的 YouTube 时，`--skip-model` 可降到约 150 MB。
@@ -197,8 +221,9 @@ video-digest-skill/
 │   ├── make_page.py          outline.json → 四件套（含双视图渲染）
 │   ├── setup_env.py          一键装环境
 │   ├── bili_digest.py        转写 / 抽帧 / 文稿
-│   └── lib_bili.py  lib_yt.py  lib_wx.py  lib_douyin.py  lib_xhs.py  lib_tiktok.py  lib_short.py
-├── examples/                 最小大纲（学习版 / 双视图版）
+│   └── lib_bili.py  lib_yt.py  lib_wx.py  lib_douyin.py  lib_xhs.py  lib_tiktok.py
+│       lib_short.py（短链/抠 JSON/下载）  lib_images.py（图集下载与清单）
+├── examples/                 最小大纲（学习版 / 双视图版 / 图集版）
 ├── tests/test_parsers.py     平台解析器离线夹具
 ├── docs/                     预览图与架构图
 ├── run.py                    启动器（自动挑解释器）
@@ -207,10 +232,10 @@ video-digest-skill/
 
 ## 路线图
 
-- [ ] 图文作品支持（抖音 / 小红书图集 → 图集页）
 - [ ] 抖音 / 小红书链路在可联网环境做一次完整实测校准
 - [ ] `outline.json` 的 JSON Schema 与校验命令
 - [ ] 批量模式：一次传入多个视频，产出索引页
+- [ ] 图集的「多图对比」视图（同款作品的封面并排比较）
 - [ ] 制作线的「拍摄排期」导出（.ics / 表格）
 - [ ] 英文页面主题（当前设计系统以中文排版为基准）
 
@@ -234,4 +259,4 @@ video-digest-skill/
 
 ---
 
-<sub>**关键词**：视频拆解、视频转 HTML、视频笔记生成、短视频拆解、视频复刻、拉片、B站视频总结、BV号解析、YouTube 字幕提取、微信视频号下载、抖音去水印、小红书笔记下载、TikTok 下载、本地视频转写、中文 ASR、faster-whisper、AI Agent Skill、Claude Skill、WorkBuddy 技能、outline 驱动生成、双视图、静态专题页、SVG 架构图</sub>
+<sub>**关键词**：视频拆解、视频转 HTML、视频笔记生成、短视频拆解、视频复刻、拉片、B站视频总结、BV号解析、YouTube 字幕提取、微信视频号下载、抖音去水印、小红书笔记下载、TikTok 下载、本地视频转写、中文 ASR、faster-whisper、AI Agent Skill、Claude Skill、WorkBuddy 技能、outline 驱动生成、双视图、图集、九宫格、图文作品、静态专题页、SVG 架构图</sub>

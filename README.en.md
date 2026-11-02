@@ -60,13 +60,14 @@ reading progress bar stay valid in all three views. Chapters pair with productio
 | Media | custom playurl | yt-dlp | `wx-downloader` + login | page JSON (play_addr) | page JSON (media.stream) | yt-dlp | read directly |
 | Transcript | local ASR | **subtitles first** | local ASR | local ASR | local ASR | local ASR | local ASR |
 | Login | no | no | one QR scan | sometimes cookie | cookie may be needed | sometimes cookie | no |
+| Image posts | — | — | not yet | **carousel** | **grid note** | — | **image folder** |
 
 Honest notes:
 
 - Douyin's share page returns a **watermarked** URL (`playwm`); swapping it to `play` gives the clean one. Duration fields are in milliseconds.
 - Xiaohongshu links **must keep `xsec_token`** — rebuilding the URL from the note id alone always fails.
 - TikTok signing is delegated to yt-dlp; if it breaks, upgrade yt-dlp before touching our code.
-- Image posts (photo mode) are **not** supported — they fail with an explicit error rather than downloading garbage.
+- Image posts (Douyin carousels, Xiaohongshu grid notes, local image folders) take a **separate gallery branch**: no audio, no ASR, no keyframes — the deliverable is a gallery page. Each image carries two readings: `note` for the learn track ("what this one says") and `design` for the replicate track ("why it's laid out this way").
 
 ## Output
 
